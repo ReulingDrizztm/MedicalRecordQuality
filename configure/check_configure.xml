@@ -1,0 +1,557 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<configuration>
+    <property>
+        <name>func</name>
+        <type>dict</type>
+        <value>{
+                'ruyuanjilu': [
+                    'check_chief_time',
+                    'check_chief_present',
+                    'check_present_time',
+                    'check_repeat',
+                    'check_present_past',
+                    'check_past_diagnosis',
+                    'check_past_deny',
+                    'check_past_guominshi',
+                    'check_past_guominyuan',
+                    'check_present_past_operation',
+                    'check_present_tigejiancha',
+                    'check_diagnosis_xinjie',
+                    'check_diagnosis_fangchan',
+                    'check_hypokalemia',
+                    'check_yuejingshi',
+                    'check_zhuankejiancha_tanhuan',
+                    'check_marital_status',
+            ],
+                'shangjiyishichafanglu' : [
+                    'check_repeat_shangjichafang',
+                    'check_chatirepeat_shangjichafang',
+                    'check_exist_shangjichafang',
+                    'check_chati_shangjichafang',
+                    'check_shouyeshoushu_shangjichafang',
+            ],
+                'richangbingchengjilu': [
+                    'check_repeat_richangbingcheng',
+                    'check_chatirepeat_richangbingcheng',
+                    'check_exist_richangbingcheng',
+                    'check_chati_richangbingcheng',
+                    'check_baguanjilu',
+                    'check_shouyeshoushu_richangbingcheng',
+            ],
+                'shuhoubingchengjilu': [
+                    'check_repeat_shuhoubingcheng',
+                    'check_chatirepeat_shuhoubingcheng',
+                    'check_exist_shuhoubingcheng',
+                    'check_chati_shuhoubingcheng',
+            ],
+                'shangjiyishishoucibingchengjilu': [
+                    'check_exist_shangjishoucibingcheng',
+            ],
+                'shuhoushoucishangjiyishichangfangjilu': [
+                    'check_exist_shuhoushoucichafang',
+                    'check_chati_shuhoushoucichafang',
+            ],
+                'shuhoushoucibingchengjilu': [
+                    'check_exist_shuhoushoucibingcheng',
+            ],
+                'binganshouye': [
+                    'check_gender',
+                    'check_gender_chanke',
+                    'check_admission_weight',
+                    'check_info_binganshouye',
+            ],
+                'shoushujilu': [
+                    'check_shoushujilu_chafang',
+                    'check_shoushu_shuhoubingcheng',
+                    'check_shoushu_creator',
+                    'check_operation_hematoma',
+                    'check_operation_tube',
+                    'check_shoushu_buwei',
+            ],
+                'shouyeshoushu': [
+                    'check_items_shouyeshoushu',
+            ],
+                'shouyezhenduan': [
+                    'check_code_shouyezhenduan',
+                    'check_birth_weight',
+            ],
+                'jianyanbaogao': [
+                    'check_chuyuan_diagnosis',
+            ],
+                'chuyuanjilu': [
+                    'check_chuyuan_chuyuandaiyao',
+            ],
+                'yizhu':[
+                    'check_yizhu_shuxue',
+                    'check_yizhu_baguan',
+            ],
+                'hulitizhengyangli':[
+                    'check_huli_tiwen',
+            ],
+                }
+        </value>
+        <description>key为要查询的collection, value为要使用的函数的list</description>
+    </property>
+
+    <property>
+        <name>regular_code_switch</name>
+        <type>boolean</type>
+        <value>False</value>
+        <description>规则码过滤开关</description>
+    </property>
+
+    <property>
+        <name>regular_code</name>
+        <type>list</type>
+        <value>[
+            'SY0001',
+            'SY0002',
+            'SY0003',
+            'SY0004',
+            'SY0005',
+            'SY0006',
+            'SY0007',
+            'SY0009',
+            'SY0011',
+            'SY0012',
+            'SY0014',
+            'SY0015',
+            'SY0016',
+            'SY0017',
+            'SY0018',
+            'SY0019',
+            'SY0020',
+            'SY0021',
+            'SY0022',
+            'SY0023',
+            ]</value>
+        <description>需要运行的规则码</description>
+    </property>
+
+    <property>
+        <name>time_limits</name>
+        <type>dict</type>
+        <value>{"binganshouye.pat_visit.discharge_time": {"$gte": "2018-01", "$lt": "2019-05"}}</value>
+        <description>条件查询binganshouye</description>
+    </property>
+
+    <property>
+        <name>category_conf</name>
+        <type>dict</type>
+        <value>{
+            'siwang': '一般尸体料理',
+            'shoushu': '4',
+            'shuxue': '600'
+            }</value>
+        <description>配置患者病历分类的条件</description>
+    </property>
+
+    <property>
+        <name>lab_check_hypokalemia</name>
+        <type>list</type>
+        <value>['lab_sub_item_name', 'lab_result_value', 'lab_sub_item_en_name', 'report_time']</value>
+        <description>获取lab模型中的指定字段信息</description>
+    </property>
+
+    <property>
+        <name>time_value</name>
+        <type>list</type>
+        <value>['随即', '此后', '后', '随后', '现']</value>
+        <description>现病史可忽略的时间节点值</description>
+    </property>
+
+    <property>
+        <name>load_time</name>
+        <type>list</type>
+        <value>[(re.compile('今晨|昨天'), (1, '天'))]</value>
+        <description>需要改成时间的词</description>
+    </property>
+
+    <property>
+        <name>check_chief_time</name>
+        <type>regex</type>
+        <value>re.compile("二胎计划|不良孕|自生后|自幼|\d*岁时|自出生后|出生后|自出生后|出生时|数天|数年|数月")</value>
+        <description>用于过滤RYJLZS0001规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>check_chief_present</name>
+        <type>regex</type>
+        <value>re.compile("停经\d+\+?\d*周")</value>
+        <description>用于过滤主诉[时间]不存在于现病史时间中规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>check_repeat</name>
+        <type>regex</type>
+        <value>re.compile("余年")</value>
+        <description>用于过滤RYJLZS0003规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>check_past_guominshi</name>
+        <type>regex</type>
+        <value>{
+            '眼科': re.compile('屈光不正史'),
+            '儿科': re.compile('之女|之子|之大子|之大女|之小女|之小子'),
+            }</value>
+        <description>用于过滤RYJLJWS0007规则的特殊情况, SY0002也用某某之子</description>
+    </property>
+
+    <property>
+        <name>diagnosis_standard</name>
+        <type>dict</type>
+        <value>{
+            '门(急)诊诊断': ['门(急)诊诊断'],
+            '出院诊断': ['出院诊断'],
+            '病理诊断': ['病理诊断']}</value>
+        <description>各医院诊断名称归一化</description>
+    </property>
+
+    <property>
+        <name>dept_standard</name>
+        <type>dict</type>
+        <value>{
+            '妇产科': ['妇产科'],
+            '儿科': ['儿科'],
+            '眼科': ['眼科']}</value>
+        <description>各医院科室名称归一化</description>
+    </property>
+
+    <property>
+        <name>RYJLZS0001</name>
+        <type>regex</type>
+        <value>re.compile("二胎计划|不良孕|自生后|自幼|\d*岁时|自出生后|出生后|自出生后|出生时|数天|数年|数月")</value>
+        <description>用于过滤RYJLZS0001规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>RYJLZS0003</name>
+        <type>regex</type>
+        <value>re.compile("余年")</value>
+        <description>用于过滤RYJLZS0003规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>RYJLXBS0002</name>
+        <type>dict</type>
+        <value>{
+            'filter': re.compile("有创操作手术史|注射药物史|化疗"),
+            'skip': re.compile("几月|日后|此后")
+            }</value>
+        <description>用于过滤RYJLXBS0002规则的关键字</description>
+    </property>
+
+    <property>
+        <name>RYJLXBS0003</name>
+        <type>regex</type>
+        <value>re.compile("停经\d+\+?\d*周|小时")</value>
+        <description>用于过滤主诉[时间]不存在于现病史时间中规则的特殊情况</description>
+    </property>
+
+    <property>
+        <name>RYJLJWS0005</name>
+        <type>regex</type>
+        <value>{
+            '眼科': re.compile('屈光不正史'),
+            '儿科': re.compile('之女|之子|之大子|之大女|之小女|之小子'),
+            }</value>
+        <description>用于过滤RYJLJWS0005规则的特殊情况, SY0002也用某某之子</description>
+    </property>
+
+    <property>
+        <name>RYJLJWS0008</name>
+        <type>regex</type>
+        <value>re.compile("海鲜|牛羊肉")</value>
+        <description>用于过滤药物过敏时出现的非药物名称</description>
+    </property>
+
+    <property>
+        <name>RYJLHY0001</name>
+        <type>regex</type>
+        <value>re.compile("闭经|月经|绝经")</value>
+        <description>用于过滤hy0001规则的关键字</description>
+    </property>
+
+    <property>
+        <name>RYJLTGJC0001</name>
+        <type>dict</type>
+        <value>{
+            "偏瘫": ["四肢活动自如", "步入病房"],
+            "昏迷": ["神志清", "查体合作", "语音震颤", "步入病房"]
+            }</value>
+        <description>用于RYJLTGJC0001规则的关键字</description>
+    </property>
+
+    <property>
+        <name>RYJLTGJC0002</name>
+        <type>dict</type>
+        <value>{
+            "孕": ["腹平", "腹软"],
+            }</value>
+        <description>用于RYJLTGJC0002规则的关键字</description>
+    </property>
+
+    <property>
+        <name>RYJLZKJC0002</name>
+        <type>dict</type>
+        <value>{
+            'target_name': ['瘫痪', 'FrankelA', 'FrankelB', 'FrankelC', 'ASIAA', 'ASIAB', 'ASIAC'],
+            'target_grade': {
+                'l_levator_scapulae_strength': 'V',
+                'r_levator_scapulae_strength': 'V',
+                'l_deltoid_strength': 'V',
+                'r_deltoid_strength': 'V',
+                'l_bicep_strength': 'V',
+                'r_bicep_strength': 'V',
+                'l_tricep_strength': 'V',
+                'r_tricep_strength': 'V',
+                'l_extensor_carpi_strength': 'V',
+                'r_extensor_carpi_strength': 'V',
+                'l_flexor_carpi_strength': 'V',
+                'r_flexor_carpi_strength': 'V',
+                'l_trapezius_strength': 'V',
+                'r_trapezius_strength': 'V',
+                'l_brachioradialis_strength': 'V',
+                'r_brachioradialis_strength': 'V',
+                'l_extensor_finger_strength': 'V',
+                'r_extensor_finger_strength': 'V',
+                'l_flexor_finger_strength': 'V',
+                'r_flexor_finger_strength': 'V',
+                'l_abductor_minim_strength': 'V',
+                'r_abductor_minim_strength': 'V',
+                'l_grip_strength': 'V',
+                'r_grip_strength': 'V',
+                'l_iliopsoas_strength': 'V',
+                'r_iliopsoas_strength': 'V',
+                'l_quadriceps_femoris_strength': 'V',
+                'r_quadriceps_femoris_strength': 'V',
+                'l_hamstring_strength': 'V',
+                'r_hamstring_strength': 'V',
+                'l_tibialis_anterior_strength': 'V',
+                'r_tibialis_anterior_strength': 'V',
+                'l_triceps_surae_strength': 'V',
+                'r_triceps_surae_strength': 'V',
+                'l_extensor_digitorum_strength': 'V',
+                'r_extensor_digitorum_strength': 'V',
+                'l_peroneus_strength': 'V',
+                'r_peroneus_strength': 'V',
+                'l_thumb_extensor_strength': 'V',
+                'r_thumb_extensor_strength': 'V',
+                    }
+            }</value>
+        <description>用于RYJLZKJC0002规则的关键字</description>
+    </property>
+
+    <property>
+        <name>FZJC</name>
+        <type>regex</type>
+        <value>re.compile('[\d]+\.?[\d]*')</value>
+        <description>用于检测辅助检查的value是否是数字</description>
+    </property>
+
+    <property>
+        <name>SYJZ0001</name>
+        <type>dict</type>
+        <value>{
+            '已婚': ['未婚', '其他'],
+            '未婚': ['已婚'],
+            }</value>
+        <description>用于SYJZ0001规则的关键字</description>
+    </property>
+
+    <property>
+        <name>SYJZ0009</name>
+        <type>dict</type>
+        <value>{
+            'yizhu': ('出院', '医嘱离院'),
+            'siwangjilu': '死亡',
+            }</value>
+        <description>用于SYJZ0009规则病案首页出院写法, yizhu中为('医嘱项名称', '病案首页出院方式'), siwangjilu中为'病案首页出院方式'</description>
+    </property>
+
+    <property>
+        <name>SYSS0001</name>
+        <type>list</type>
+        <value>['会诊']</value>
+        <description>用于SYSS0001规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYSS0002</name>
+        <type>dict</type>
+        <value>{
+            'type': '手术',
+            'grade': ['1', '2', '3', '4', '一级手术', '二级手术', '三级手术', '四级手术']
+            }</value>
+        <description>用于SYSS0002规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYSS0004</name>
+        <type>dict</type>
+        <value>['0', '－', '无']</value>
+        <description>用于SYSS0004规则的切口等级过滤</description>
+    </property>
+
+    <property>
+        <name>SYSS0005</name>
+        <type>dict</type>
+        <value>{
+            'wound': ['Ⅰ'],
+            'healing': ['丙']
+            }</value>
+        <description>用于SYSS0005规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYMZZD0001</name>
+        <type>dict</type>
+        <value>{
+            'regex': re.compile('^[VWXY]'),
+            }</value>
+        <description>用于SYMZZD0001规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYMZZD0002</name>
+        <type>dict</type>
+        <value>{
+            'regex': re.compile('P1[0-5]'),
+            }</value>
+        <description>用于SYMZZD0002规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYMZZD0003</name>
+        <type>dict</type>
+        <value>{
+            'regex': re.compile('J40'),
+            }</value>
+        <description>用于SYMZZD0003规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYBL0001</name>
+        <type>dict</type>
+        <value>{
+            'regex': re.compile('^(C[0-8][0-9]|C[9][0-7]|D[0-3][0-9]|D[4][0-8])'),
+            }</value>
+        <description>用于SYBL0001规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>SYBL0002</name>
+        <type>dict</type>
+        <value>{
+            'regex': re.compile('^(C[0-8][0-9]|C[9][0-7]|D[0-3][0-9]|D[4][0-8])'),
+            }</value>
+        <description>用于SYBL0002规则的关键字过滤</description>
+    </property>
+
+    <property>
+        <name>english_to_chinese</name>
+        <type>dict</type>
+        <value> {
+            'binganshouye': '病案首页',
+            'ruyuanjilu': '入院记录',
+            'shoucibingchengjilu': '首次病程记录',
+            'shangjiyishishoucibingchengjilu': '上级医师查房记录',
+            'shangjiyishichafanglu': '上级医师查房记录',
+            'shuhoushoucishangjiyishichangfangjilu': '上级医师查房记录',
+            'richangbingchengjilu': '日常病程记录',
+            'shoushujilu': '手术记录',
+            'shuhoubingchengjilu': '术后病程记录',
+            'shuhoushoucibingchengjilu': '术后病程记录',
+            'huizhenjilu': '会诊记录',
+            'chuyuanjilu': '出院记录',
+            'siwangjilu': '死亡记录',
+            'yizhu': '医嘱',
+            'jianyanbaogao': '检验报告',
+            'jianchabaogao': '检查报告',
+            'hulitizhengyangli': '护理',
+            'shouyeshoushu': '首页手术',
+            'shouyezhenduan': '首页诊断',
+            }</value>
+        <description>病历文书对应中文名称, 与规则列表中的路径列对应, 从json中读取的文书名称对应的中文名</description>
+    </property>
+
+    <property>
+        <name>html_english_chinese</name>
+        <type>dict</type>
+        <value> {
+            'binganshouye': '病案首页',
+            'ruyuanjilu': '入院记录',
+            'shoucibingchengjilu': '首次病程记录',
+            'richangbingchengjilu': '日常病程记录',
+            'shangjiyishishoucibingchengjilu': '上级医师首次病程记录',
+            'shangjiyishichafanglu': '上级医师查房记录',
+            'shoushujilu': '手术记录',
+            'shuhoushoucibingchengjilu': '术后首次病程记录',
+            'shuhoubingchengjilu': '术后病程记录',
+            'shuhoushoucishangjiyishichangfangjilu': '术后首次上级医师查房记录',
+            'huizhenjilu': '会诊记录',
+            'chuyuanjilu': '出院记录',
+            'siwangjilu': '死亡记录',
+            'yizhu': '医嘱',
+            'jianyanbaogao': '检验报告',
+            'jianchabaogao': '检查报告',
+            }</value>
+        <description>html展示时中英文对照</description>
+    </property>
+
+    <property>
+        <name>ruyuanjilu_segment</name>
+        <type>dict</type>
+        <value> {
+                '主诉': 'chief_complaint',
+                '现病史': 'history_of_present_illness',
+                '既往史': 'history_of_past_illness',
+                '个人史': 'social_history',
+                '家族史': 'history_of_family_member_diseases',
+                '月经婚育史': 'menstrual_and_obstetrical_histories',
+                '体格检查': 'physical_examination',
+                '辅助检查': 'auxiliary_examination',
+                '初步诊断': 'diagnosis_name',
+            }</value>
+        <description>segmentWord中需要处理的ruyuanjilu的章节名称</description>
+    </property>
+
+    <property>
+        <name>filter_word</name>
+        <type>dict</type>
+        <value>{
+            '脑出血': '高血压',
+            '冠心病': '粥样硬化',
+            }</value>
+        <description>判定是否是同义词时需要过滤的词表</description>
+    </property>
+
+    <property>
+        <name>test_account</name>
+        <type>list</type>
+        <value>[
+            '刘志平',
+            '管理员',
+            '张晨',
+            '李文桓',
+            '朱声荣',
+            '王少林',
+            '嘉和',
+            ]</value>
+        <description>过滤测试账号，账号里含有list中的词语则过滤</description>
+    </property>
+
+    <property>
+        <name>mr_url</name>
+        <type>dict</type>
+        <value>{
+            '192.168.132.4':{
+                'test': 'http://10.2.2.94:87/EmrDataWebService.asmx?wsdl',
+                'release': 'http://10.2.2.73:87/EmrDataWebService.asmx?wsdl',
+                    }
+            }</value>
+        <description>根据配置的数据库地址，设置电子病历服务器请求地址</description>
+    </property>
+</configuration>

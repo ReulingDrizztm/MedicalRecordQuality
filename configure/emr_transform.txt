@@ -1,0 +1,14 @@
+EMR09.00.01=ruyuanjilu,1
+EMR10.00.13=chuyuanjilu,1
+EMR12.00.01=chuyuanjilu,1
+EMR10.00.16=chuyuanjilu,1
+EMR12.00=chuyuanjilu,1
+EMR05.01.02=shoushujilu,n
+EMR10.00.01=shoucibingchengjilu,1
+EMR10.00.02=richangbingchengjilu,n
+EMR10.00.03=shangjiyishichafanglu,n
+EMR10.00.12=shuhoushoucibingchengjilu,n
+EMR10.00.17=shuhoubingchengjilu,n
+EMR10.00.18=shangjiyishishoucibingchengjilu,1
+EMR10.00.19=shuhoushoucishangjiyishichangfangjilu,n
+EMR10.00.14=siwangjilu,1

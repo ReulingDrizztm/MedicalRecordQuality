@@ -1,7 +1,7 @@
 """MedicalRecordQuality URL Configuration
 
 The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/2.0/topics/http/urls/
+    https://docs.djangoproject.com/en/2.2/topics/http/urls/
 Examples:
 Function views
     1. Add an import:  from my_app import views
@@ -15,14 +15,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.conf.urls import url
-import os
-import sys
 
 urlpatterns = [
-    # path('admin/', admin.site.urls),
-    url('^med/MedicalQuality/', include('MedicalQuality.urls')),
-    url('^med/MedicalQuality/', include('MedicalQuality.permissionUrls')),
-    url('^med/RecordClient/', include('RecordClient.clientInterfaceUrls')),
-    url('^med/RecordClientTest/', include('RecordClientTest.clientInterfaceUrls'))
+    path('admin/', admin.site.urls),
+    path('^med/MedicalQuality/', include('MedicalQuality.urls')),
+    path('^med/MedicalQuality/', include('MedicalQuality.permissionUrls')),
+    path('^med/RecordClient/', include('RecordClient.clientInterfaceUrls')),
+    path('^med/RecordClientTest/', include('RecordClientTest.clientInterfaceUrls'))
 ]

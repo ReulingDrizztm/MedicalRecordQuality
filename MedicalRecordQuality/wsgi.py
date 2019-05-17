@@ -4,8 +4,9 @@ WSGI config for MedicalRecordQuality project.
 It exposes the WSGI callable as a module-level variable named ``application``.
 
 For more information on this file, see
-https://docs.djangoproject.com/en/2.0/howto/deployment/wsgi/
+https://docs.djangoproject.com/en/2.2/howto/deployment/wsgi/
 """
+
 
 import os
 import traceback
@@ -21,7 +22,7 @@ scheduler = BackgroundScheduler()
 scheduler._logger.disabled = True
 
 
-## 定时任务
+# 定时任务
 @scheduler.scheduled_job('cron', hour="3")  # 定时任务，每天晚上3点运行
 def hospital_server_info():
     """
@@ -61,3 +62,4 @@ def runRegularScheduled():
 
 
 application = get_wsgi_application()
+

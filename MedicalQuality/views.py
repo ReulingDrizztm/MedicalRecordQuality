@@ -147,6 +147,11 @@ def findPatientByStatus(request):
 
 @views_log
 def findPatientHtml(request):
+    """
+    既往/终末质控页面 -- 详细页面 -- 分项详细栏
+    :param request:
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -173,6 +178,11 @@ def findPatientHtml(request):
 
 @views_log
 def getPatientHtmlList(request):
+    """
+    获取电子病历文档列表
+    :param request: 从前端传递过来的请求参数，主要包含：data_id
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -349,16 +359,18 @@ def deptRightAndError(request):
             dept_name = data.get('dept_name', '')
             start_date = data.get('start_date', '')
             end_date = data.get('end_date', '')
+            last_month = data.get('last_month', '')
 
-            result = statistic_app.deptRightAndError(dept_name=dept_name, start_date=start_date, end_date=end_date)
+            result = statistic_app.deptRightAndError(dept_name=dept_name, start_date=start_date, end_date=end_date, last_month=last_month)
             return HttpResponse(json.dumps(result))
         elif request.content_type == 'multipart/form-data':
 
             dept_name = request.POST.get('dept_name', '')
             start_date = request.POST.get('start_date', '')
             end_date = request.POST.get('end_date', '')
+            last_month = request.POST.get('last_month', '')
 
-            result = statistic_app.deptRightAndError(dept_name=dept_name, start_date=start_date, end_date=end_date)
+            result = statistic_app.deptRightAndError(dept_name=dept_name, start_date=start_date, end_date=end_date, last_month=last_month)
             return HttpResponse(json.dumps(result))
         else:
             return HttpResponse(json.dumps({}))
@@ -438,13 +450,13 @@ def graphPageHeader(request):
 @views_log
 def fileDownload(request):
     def file_iterator(file_name, chunk_size=512):
-            with open(file_name, 'rb') as f:
-                while True:
-                    c = f.read(chunk_size)
-                    if c:
-                        yield c
-                    else:
-                        break
+        with open(file_name, 'rb') as f:
+            while True:
+                c = f.read(chunk_size)
+                if c:
+                    yield c
+                else:
+                    break
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -532,6 +544,11 @@ def fileDownload(request):
 
 @views_log
 def problemNameAndCode(request):
+    """
+    既往/终末质控页面 -- 筛选页面 -- 规则文书/问题分类
+    :param request: sheet_name: 终末
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -543,19 +560,17 @@ def problemNameAndCode(request):
 
             regular_name = data.get('regular_name', '')
             record = data.get('record', '')
-            manage = data.get('manage', False)
             sheet_name = data.get('sheet_name', '')
 
-            result = statistic_app.problemNameAndCode(regular_name=regular_name, record=record, manage=manage, sheet_name=sheet_name)
+            result = statistic_app.problemNameAndCode(regular_name=regular_name, record=record, sheet_name=sheet_name)
             return HttpResponse(json.dumps(result))
         elif request.content_type == 'multipart/form-data':
 
             regular_name = request.POST.get('regular_name', '')
             record = request.POST.get('record', '')
-            manage = request.POST.get('manage', False)
             sheet_name = request.POST.get('sheet_name', '')
 
-            result = statistic_app.problemNameAndCode(regular_name=regular_name, record=record, manage=manage, sheet_name=sheet_name)
+            result = statistic_app.problemNameAndCode(regular_name=regular_name, record=record, sheet_name=sheet_name)
             return HttpResponse(json.dumps(result))
         else:
             return HttpResponse(json.dumps({}))
@@ -590,6 +605,11 @@ def showDataResult(request):
 
 @views_log
 def record_to_regular(request):
+    """
+    文书名称所包含的规则名称
+    :param request: 从前端传递过来的请求参数，主要包含：record
+    :return: 相应规则列表
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -615,6 +635,11 @@ def record_to_regular(request):
 
 @views_log
 def regular_to_detail(request):
+    """
+    文书名称所包含的规则名称
+    :param request:
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -640,6 +665,11 @@ def regular_to_detail(request):
 
 @views_log
 def detail_to_score(request):
+    """
+    文书名称所包含的规则名称
+    :param request:
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -664,7 +694,51 @@ def detail_to_score(request):
 
 
 @views_log
+def record_regular_detail_score(request):
+    """
+    文书名称所包含的规则名称
+    该视图是由 record_to_regular、 regular_to_detail、detail_to_score 合并而成，将原来的 3 个视图合并成一个视图
+    :param request: 从前端传递过来的参数
+    :return: 查询出来的规则名称或者空 json 字符串
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            data = request.body
+            data = data.decode('utf-8')
+            if not data:
+                data = '{}'
+            data = json.loads(data)
+            if data.get("record"):
+                result_data = data.get('record')
+            elif data.get("regular"):
+                result_data = data.get('regular')
+            elif data.get("detail"):
+                result_data = data.get('detail')
+            else:
+                result_data = ""
+
+            result = statistic_app.record_regular_detail_score(result_data=result_data)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+            if request.POST.get("record"):
+                result_data = request.POST.get('record')
+            elif request.POST.get('regular'):
+                result_data = request.POST.get('regular')
+            elif request.POST.get('detail'):
+                result_data = request.POST.get('detail')
+            else:
+                result_data = ""
+
+            result = statistic_app.record_regular_detail_score(result_data=result_data)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
+@views_log
 def record_list(request):
+    # 既往/终末质控页面 -- 筛选页面 -- 文书名称
     statistic_app = StatisticPatientInfos()
     # logger.info(request.META.get('REMOTE_ADDR'))
     if request.method == 'POST':
@@ -682,6 +756,11 @@ def record_list(request):
 
 @views_log
 def version(request):
+    """
+    获取当前系统的版本号
+    :param request:
+    :return:
+    """
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -773,6 +852,7 @@ def deptProblemPercentage(request):
 
 @views_log
 def deptProblemClassify(request):
+    # 科室问题分类
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -798,6 +878,7 @@ def deptProblemClassify(request):
 
 @views_log
 def doctorProblemNum(request):
+    # 医生问题分类栏
     statistic_app = StatisticPatientInfos()
     if request.method == 'POST':
         if request.content_type == 'text/plain':

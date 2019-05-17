@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: permissionInit.py
-@time: 2019-03-20 11:17
-@description: 权限初始化
-"""
+# 权限初始化
+
 from django.conf import settings
 
 
@@ -30,7 +24,7 @@ def initPermission(request, role_obj, dept_obj):
             permission_url_list.append(item["url"])
         if item['interface']:
             # temp = {"title": item['title'],
-                    # "interface": item["interface"]}
+            # "interface": item["interface"]}
             permission_interface_list.append(item["interface"])
 
     # 注：session在存储时，会先对数据进行序列化，因此对于Queryset对象写入session， 加list()转为可序列化对象

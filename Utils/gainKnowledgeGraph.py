@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: gainKnowledgeGraph.py
-@time: 2019-04-23 09:45
-@description: 知识库查询
-"""
+# 知识库查询
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))
@@ -273,7 +267,7 @@ if __name__ == '__main__':
     print(json.dumps(r, ensure_ascii=False, indent=4))
 
     print('是否是同义词, input: {}'.format("['肩部背痛'], ['肩背部疼痛']"))
-    r = app.getSameContent(['心界'], ['心界不大'])
+    r = app.getSameContent(['肩部背痛'], ['肩背部疼痛'])
     print(json.dumps(r, ensure_ascii=False, indent=4))
 
     print('函数运行消耗 {0} 秒'.format(time.time() - t1))

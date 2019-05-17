@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: LogUtils.py
-@time: 18-9-27 上午9:29
-@description: 日志类
-"""
+# 日志类
+
 import os
 import sys
 import time

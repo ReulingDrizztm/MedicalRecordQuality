@@ -1,5 +1,5 @@
 from django.apps import AppConfig
 
 
-class ToolConfig(AppConfig):
+class MedicalqualityConfig(AppConfig):
     name = 'MedicalQuality'

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: v1.0
-@author:
-@contact:
-@software: PyCharm
-@file: MongoUtils.py
-@time: 26/06/18 下午 07:22
-@description: 
-"""
+# mongoDB数据库类
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))
@@ -34,31 +27,25 @@ class MongoUtils(object):
         self.mongodb_database_name = self.parameters.properties.get('mongodb')
         self.mongodb_collection_name = self.parameters.properties.get('collection_name')
         self.mongodb_collection_name_doctor = '{}_doctor'.format(self.mongodb_collection_name)
-        self.mongodb_collection_name_huanjie = '{}_huanjie'.format(self.mongodb_collection_name)
-        self.mongodb_collection_name_zhongmo = '{}_zhongmo'.format(self.mongodb_collection_name)
         self.username_wr = self.parameters.properties.get('username_write_read')
         self.password_wr = self.parameters.properties.get('password_write_read')
+        self.record_host = self.parameters.properties.get('record_host')
+        self.record_port = eval(self.parameters.properties.get('record_port'))
+        self.record_database = self.parameters.properties.get('record_mongodb')
         # endregion
 
         # 数据库的连接操作
         self.client = MongoClient(host=self.mongodb_host, port=self.mongodb_port, connect=False)
-
-        # 文书库
-        if self.parameters.properties.get('record_host'):
-            record_host = self.parameters.properties.get('record_host')
-            record_port = eval(self.parameters.properties.get('record_port'))
-            record_database = self.parameters.properties.get('record_mongodb')
-            record_client = MongoClient(host=record_host, port=record_port, connect=False)
-            self.record_db = record_client.get_database(name=record_database)
-            if self.parameters.properties.get('record_auth') in ['true', 'True']:
-                username = self.parameters.properties.get('record_username')
-                password = self.parameters.properties.get('record_password')
-                self.record_db.authenticate(username, password)
-        else:
-            self.record_db = self.connectDataBase()
+        self.record_client = MongoClient(host=self.record_host, port=self.record_port, connect=False)
+        self.record_db = self.record_client.get_database(name=self.record_database)
+        if self.parameters.properties.get('record_auth') in ['true', 'True']:
+            username = self.parameters.properties.get('record_username')
+            password = self.parameters.properties.get('record_password')
+            self.record_db.authenticate(username, password)
         self.authed = False
 
     def _isAuth(self):
+        # 验证是否开启了权限
         if self.parameters.properties.get('mongo_auth') == 'false':
             return False
         if self.parameters.properties.get('mongo_auth') == 'False':
@@ -66,10 +53,7 @@ class MongoUtils(object):
         return True
 
     def identifyAuth(self):
-        """
-        验证配置是否能通过数据库权限验证
-        :return:
-        """
+        # 数据库认证
         if self._isAuth():
             client = MongoClient(host=self.mongodb_host, port=self.mongodb_port, connect=False)
             db = client.get_database(name=self.mongodb_database_name)
@@ -79,6 +63,9 @@ class MongoUtils(object):
                 return False
         return True
 
+
+class PullDataFromMDBUtils(MongoUtils):
+    # 获取连接的类
     def connectDataBase(self, database_name=None):
         """
         功能:连接到指定的数据库
@@ -113,9 +100,6 @@ class MongoUtils(object):
         except:
             self.logger.error(traceback.format_exc())
 
-
-class PullDataFromMDBUtils(MongoUtils):
-
     def connection(self, collection_name=None):
         """
         功能:数据库连接
@@ -130,6 +114,40 @@ class PullDataFromMDBUtils(MongoUtils):
 
 
 class PushDataFromMDBUtils(MongoUtils):
+    # 往指定的表中推送数据
+    def connectDataBase(self, database_name=None):
+        """
+        功能:连接到指定的数据库
+        """
+        try:
+            if database_name is None:
+                db = self.client.get_database(name=self.mongodb_database_name)
+            else:
+                db = self.client.get_database(name=database_name)
+            if self._isAuth():
+                if self.authed:
+                    db.logout()
+                db.authenticate(self.username_wr, self.password_wr)
+                self.authed = True
+            return db
+        except:
+            self.logger.error(traceback.format_exc())
+
+    def connectCollection(self, database_name, collection_name):
+        """
+        功能:获取数据库中指定的表
+        """
+        try:
+            db = self.client.get_database(name=database_name)
+            if self._isAuth():
+                if self.authed:
+                    db.logout()
+                db.authenticate(self.username_wr, self.password_wr)
+                self.authed = True
+            collection = db.get_collection(name=collection_name)
+            return collection
+        except:
+            self.logger.error(traceback.format_exc())
 
     def pushData(self, collection_name, data):
         """

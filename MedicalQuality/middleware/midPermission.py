@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: midPermission.py
-@time: 2019-03-20 13:53
-@description: 权限管理中间件
-"""
 from django.conf import settings
 from django.shortcuts import HttpResponse
 import re

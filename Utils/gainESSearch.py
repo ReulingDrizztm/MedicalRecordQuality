@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: gainESSearch.py
-@time: 2019-02-20 14:32
-@description: 
-"""
+# 从ES服务器上获取数据信息
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))
@@ -66,7 +60,7 @@ class GainESSearch(object):
         except:
             HOST_NAME = socket.gethostname()
             HOST_IP = socket.gethostbyname(HOST_NAME)
-            exc_type, exc_value, exc_traceback_obj = sys.exc_info()
+            exc_type, exc_value, exc_traceback_obj = sys.exc_info()  # sys.exc_info()，返回有关由except捕获的最近异常的信息
             abnormal_info = ''.join(traceback.format_tb(exc_traceback_obj))
             info = self.log_info.format(self.hospital_code, self.ver, HOST_IP, url, data, r.text, r.status_code,
                                         exc_type.__name__, exc_value, abnormal_info, time.time()-start_time)
@@ -218,8 +212,10 @@ class GainESSearch(object):
             # 有起始日期，没有结束日期
             expression = [[{"field": "住院病案首页_就诊信息_出院时间", "exp": ">=", "flag": "or", "unit": "", "values": [start_date]}]]
         if end_date and not start_date:
+            # 有结束日期，没有起始日期
             expression = [[{"field": "住院病案首页_就诊信息_出院时间", "exp": "<", "flag": "or", "unit": "", "values": [end_date]}]]
         if start_date and end_date:
+            # 有起始日期，也有结束日期
             expression = [[{"field": "住院病案首页_就诊信息_出院时间", "exp": ">=", "flag": "or", "unit": "", "values": [start_date]}],
                           [{"field": "住院病案首页_就诊信息_出院时间", "exp": "<", "flag": "or", "unit": "", "values": [end_date]}]]
         if not expression:

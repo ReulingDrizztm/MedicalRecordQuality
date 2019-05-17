@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: gainSynonym.py
-@time: 2019-01-28 15:30
-@description: 调用知识库同义词接口
-"""
+# 调用知识库同义词接口
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))

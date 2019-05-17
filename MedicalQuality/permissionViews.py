@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: permissionViews.py
-@time: 18-10-26 下午3:10
-@description: 权限接口视图页
-"""
+# 权限接口视图页
+
 import json
 import os
 import sys
 import xlrd
+
 cur_path = os.path.abspath(os.path.dirname(__file__))
 root_path = os.path.split(cur_path)[0]
 sys.path.append(root_path)  # 项目路径添加到系统路径
@@ -596,7 +590,7 @@ def userUpload(request):
             else:
                 username = sheet_obj.cell_value(row, col).strip()
             if not username.strip():
-                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行USER_LOGIN_NAME为空'.format(row+1)}))
+                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行USER_LOGIN_NAME为空'.format(row + 1)}))
         result = dict()
         for row in range(1, nrow):
             username_col = caption_dict['USER_LOGIN_NAME']
@@ -644,7 +638,8 @@ def userUpload(request):
                 dept_obj = Dept.objects.filter(DEPT_CODE=dept).first()
             data = dict()
             for k, v in caption_dict.items():
-                if k not in ['USER_ID', 'USER_NAME', 'EDUCATION_TITLE', 'GROUP_CODE', 'USER_TYPE', 'IS_ROUNDS', 'LOCKED_TIME']:
+                if k not in ['USER_ID', 'USER_NAME', 'EDUCATION_TITLE', 'GROUP_CODE', 'USER_TYPE', 'IS_ROUNDS',
+                             'LOCKED_TIME']:
                     continue
                 if k != 'LOCKED_TIME':
                     if sheet_obj.cell_type(row, v) == 2:
@@ -783,7 +778,8 @@ def roleEdit(request):
             ROLE_NAME = request.POST.get('ROLE_NAME', '')
             ROLE_ID = request.POST.get('ROLE_ID', '')
             PERMISSION_TYPE = request.POST.get('PERMISSION_TYPE', '')
-            ROLE_PERMISSION_ID = None if not request.POST.get('ROLE_PERMISSION_ID') else int(request.POST.get('ROLE_PERMISSION_ID'))
+            ROLE_PERMISSION_ID = None if not request.POST.get('ROLE_PERMISSION_ID') else int(
+                request.POST.get('ROLE_PERMISSION_ID'))
         if ROLE_NAME:
             role_obj = Role.objects.filter(ROLE_NAME=ROLE_NAME).first()
             if not role_obj:
@@ -1079,12 +1075,14 @@ def roleAnotherNameEdit(request):
             ROLE_A_NAME = data.get('ROLE_A_NAME', '')
             ROLE_A_ID = data.get('ROLE_A_ID', '')
             PERMISSION_A_TYPE = data.get('PERMISSION_A_TYPE', '')
-            ROLE_A_PERMISSION_ID = None if not data.get('ROLE_A_PERMISSION_ID') else int(data.get('ROLE_A_PERMISSION_ID'))
+            ROLE_A_PERMISSION_ID = None if not data.get('ROLE_A_PERMISSION_ID') else int(
+                data.get('ROLE_A_PERMISSION_ID'))
         elif request.content_type == 'multipart/form-data':
             ROLE_A_NAME = request.POST.get('ROLE_A_NAME', '')
             ROLE_A_ID = request.POST.get('ROLE_A_ID', '')
             PERMISSION_A_TYPE = request.POST.get('PERMISSION_A_TYPE', '')
-            ROLE_A_PERMISSION_ID = None if not request.POST.get('ROLE_A_PERMISSION_ID') else int(request.POST.get('ROLE_A_PERMISSION_ID'))
+            ROLE_A_PERMISSION_ID = None if not request.POST.get('ROLE_A_PERMISSION_ID') else int(
+                request.POST.get('ROLE_A_PERMISSION_ID'))
         if ROLE_A_NAME:
             role_a_obj = RoleAnotherName.objects.filter(ROLE_A_NAME=ROLE_A_NAME).first()
             if not role_a_obj:
@@ -1170,7 +1168,7 @@ def roleAnotherNameUpload(request):
             else:
                 ROLE_ID = sheet_obj.cell_value(row, col).strip()
             if not ROLE_ID:
-                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行ROLE_ID为空'.format(row+1)}))
+                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行ROLE_ID为空'.format(row + 1)}))
         result = dict()
         for row in range(1, nrow):
             id_col = caption_dict['ROLE_ID']
@@ -1204,7 +1202,7 @@ def roleAnotherNameUpload(request):
                 permission_type = sheet_obj.cell_value(row, type_col).strip()
             if permission_type:
                 data['PERMISSION_A_TYPE'] = permission_type
-                
+
             permission_col = caption_dict['ROLE_PERMISSION_ID']
             if sheet_obj.cell_type(row, permission_col) == 2:
                 role_permission = str(int(sheet_obj.cell_value(row, permission_col))).strip()
@@ -1348,7 +1346,8 @@ def deptRegister(request):
         if not (WARD_NAME and WARD_CODE):
             data = {'res_flag': False, 'info': '请输入病区名及其ID'}
             return HttpResponse(json.dumps(data))
-        if District.objects.filter(WARD_CODE=WARD_CODE).exists() or District.objects.filter(WARD_NAME=WARD_NAME).exists():
+        if District.objects.filter(WARD_CODE=WARD_CODE).exists() or District.objects.filter(
+                WARD_NAME=WARD_NAME).exists():
             data = {'res_flag': False, 'info': '病区已经存在'}
             return HttpResponse(json.dumps(data))
         if Dept.objects.filter(DEPT_CODE=DEPT_CODE).exists():
@@ -1420,14 +1419,14 @@ def deptShow(request):
                 elif emr == '不启用' and dept_obj.DEPT_EMR != 0:
                     return HttpResponse(json.dumps({'res_flag': True, 'result': result}))
                 result = [{
-                        'WARD_CODE': district_obj.WARD_CODE,
-                        'DEPT_CODE': dept_obj.DEPT_CODE,
-                        'WARD_NAME': district_obj.WARD_NAME,
-                        'DEPT_NAME': dept_obj.DEPT_NAME,
-                        'DEPT_INPUT_CODE': dept_obj.DEPT_INPUT_CODE,
-                        'WARD_INPUT_CODE': district_obj.WARD_INPUT_CODE,
-                        'DEPT_EMR': dept_obj.DEPT_EMR
-                    }]
+                    'WARD_CODE': district_obj.WARD_CODE,
+                    'DEPT_CODE': dept_obj.DEPT_CODE,
+                    'WARD_NAME': district_obj.WARD_NAME,
+                    'DEPT_NAME': dept_obj.DEPT_NAME,
+                    'DEPT_INPUT_CODE': dept_obj.DEPT_INPUT_CODE,
+                    'WARD_INPUT_CODE': district_obj.WARD_INPUT_CODE,
+                    'DEPT_EMR': dept_obj.DEPT_EMR
+                }]
         else:
             if emr == '启用':
                 dept_list = Dept.objects.filter(DEPT_EMR__gt=0).order_by('DEPT_CODE')
@@ -1483,6 +1482,11 @@ def deptDelete(request):
 
 @views_log
 def deptWardList(request):
+    """
+    列举出所有的科室和病区名称
+    :param request:
+    :return: 科室和病区的名称
+    """
     if request.method == 'POST':
         dept_list = Dept.objects.values('DEPT_NAME').distinct()
         ward_list = District.objects.values('WARD_NAME').distinct()
@@ -1538,7 +1542,7 @@ def deptUpload(request):
             else:
                 WARD_CODE = sheet_obj.cell_value(row, col).strip()
             if not WARD_CODE:
-                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行WARD_CODE为空'.format(row+1)}))
+                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行WARD_CODE为空'.format(row + 1)}))
 
             col = caption_dict['DEPT_CODE']
             if sheet_obj.cell_type(row, col) == 2:
@@ -1546,7 +1550,7 @@ def deptUpload(request):
             else:
                 DEPT_CODE = sheet_obj.cell_value(row, col).strip()
             if not DEPT_CODE:
-                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行DEPT_CODE为空'.format(row+1)}))
+                return HttpResponse(json.dumps({'res_flag': False, 'info': '第{}行DEPT_CODE为空'.format(row + 1)}))
 
         result = dict()
         for row in range(1, nrow):

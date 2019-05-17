@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: loadRelationship.py
-@time: 18-6-29 下午2:42
-@description: 
-"""
 import re
 import os
 

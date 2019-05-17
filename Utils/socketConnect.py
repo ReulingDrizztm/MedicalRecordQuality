@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: socketConnect.py
-@time: 2019-02-27 10:50
-@description: socket 接口请求, 只能查 yizhu, jianchabaogao, jianyanbaogao，
-检查，检验要加入入院时间，不要就诊次，医嘱只需要就诊次
-"""
+
+# socket 接口请求, 只能查 yizhu, jianchabaogao, jianyanbaogao，
+# 检查，检验要加入入院时间，不要就诊次，医嘱只需要就诊次
 
 import os
 import sys

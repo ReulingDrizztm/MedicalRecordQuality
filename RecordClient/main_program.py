@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: v1.0
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: main_program.py
-@time: 18-6-26 下午4:10
-@description:
-"""
+# 规则函数
+
 import os
 import sys
+
 cur_path = os.path.abspath(os.path.dirname(__file__))
 root_path = os.path.split(cur_path)[0]
 sys.path.append(root_path)  # 项目路径添加到系统路径
@@ -21,8 +15,13 @@ from Utils.gainMongoInfo import GainMongoInfo
 from Utils.MongoUtils import PushDataFromMDBUtils
 from Utils.loadingConfigure import Properties
 from Utils.LogUtils import LogUtils
-from Utils.gainESSearch import GainESSearch
-from datetime import datetime
+from datetime import datetime, timedelta
+
+logger = LogUtils().getLogger("record_info")  # 获取 logger对象
+logger_info = LogUtils().getLogger("run_info")
+logger_error = LogUtils().getLogger("root")
+logger_print = LogUtils().getLogger("out_info")
+logger_mongo = LogUtils().getLogger("MongoUtils")
 
 
 class CheckMultiRecords(object):
@@ -32,16 +31,11 @@ class CheckMultiRecords(object):
         self.gain_info = GainMongoInfo()
         self.PushData = PushDataFromMDBUtils()
         self.parameters = Properties()
-        self.app_es = GainESSearch()
-        self.logger = LogUtils().getLogger("record_info")
-        self.logger_info = LogUtils().getLogger("run_info")
-        self.logger_error = LogUtils().getLogger("mainProgram")
-        self.logger_print = LogUtils().getLogger("out_info")
         self.all_result = dict()
         self.conf_dict = self.parameters.conf_dict.copy()
         self.hospital_code = self.parameters.properties.get('hospital_code')
         self.version = self.parameters.properties.get('version', '')
-        self.regular_model = self.parameters.regular_model['医生端'].copy()
+        self.regular_model = self.parameters.regular_model['终末'].copy()
         t = self.conf_dict.get('time_limits', dict()).copy()
         self.time_limits = t if isinstance(t, dict) else dict()
         self.repeat = dict()
@@ -51,44 +45,52 @@ class CheckMultiRecords(object):
         try:
             if regular_code == 'all':
                 for k in self.regular_model:
-                    self.regular_model[k]['status'] = '启用'
+                    self.regular_model[k][6] = '启用'
             else:
-                self.regular_model.get(regular_code, dict())['status'] = '启用'
+                self.regular_model.get(regular_code, list())[6] = '启用'
         except:
-            self.logger_error.error(traceback.format_exc())
+            logger_error.error(traceback.format_exc())
 
     def disable_regular(self, regular_code):
         try:
             if regular_code == 'all':
                 for k in self.regular_model:
-                    self.regular_model[k]['status'] = '未启用'
+                    self.regular_model[k][6] = '未启用'
             else:
-                self.regular_model.get(regular_code, dict())['status'] = '未启用'
+                self.regular_model.get(regular_code, list())[6] = '未启用'
         except:
-            self.logger_error.error(traceback.format_exc())
+            logger_error.error(traceback.format_exc())
 
-    def enable_config_regular(self):
+    def enable_config_regular(self, step_name):
         self.disable_regular('all')
-        for regular_code in self.conf_dict['regular_code']:
+        for regular_code in self.conf_dict.get(step_name, list()):
             self.enable_regular(regular_code)
-            
+
     def filter_dept(self, regular_code, binganshouye_data=''):
         """
         返回True，科室符合要求，继续运行规则，返回False，不符合要求，跳过
         """
-        if self.regular_model.get(regular_code, dict()).get('status', '') != '启用':
+        if regular_code not in self.regular_model:
+            return False
+        if len(self.regular_model[regular_code]) <= 6:
+            return False
+        if self.regular_model[regular_code][6] != '启用':
             return False
         if isinstance(binganshouye_data, dict):
             if 'menzhenshuju' in binganshouye_data:
-                dept_discharge = binganshouye_data.get('menzhenshuju', dict()).get('pat_visit', dict()).get('dept_discharge_from_name')
-                dept_admission = binganshouye_data.get('menzhenshuju', dict()).get('pat_visit', dict()).get('dept_admission_to_name')
+                dept_discharge = binganshouye_data.get('menzhenshuju', dict()).get('pat_visit', dict()).get(
+                    'dept_discharge_from_name')
+                dept_admission = binganshouye_data.get('menzhenshuju', dict()).get('pat_visit', dict()).get(
+                    'dept_admission_to_name')
                 dept = dept_discharge or dept_admission
             else:
-                dept_discharge = binganshouye_data.get('binganshouye', dict()).get('pat_visit', dict()).get('dept_discharge_from_name')
-                dept_admission = binganshouye_data.get('binganshouye', dict()).get('pat_visit', dict()).get('dept_admission_to_name')
+                dept_discharge = binganshouye_data.get('binganshouye', dict()).get('pat_visit', dict()).get(
+                    'dept_discharge_from_name')
+                dept_admission = binganshouye_data.get('binganshouye', dict()).get('pat_visit', dict()).get(
+                    'dept_admission_to_name')
                 dept = dept_discharge or dept_admission
             if dept:
-                for k, v in self.regular_model[regular_code].get('dept', dict()).items():
+                for k, v in self.regular_model[regular_code][4].items():
                     if k == '$in':
                         if dept in v:
                             return True
@@ -122,28 +124,24 @@ class CheckMultiRecords(object):
             patient_result['version'] = self.version
         return collection_data, patient_result, num
 
-    def supplementErrorInfo(self, error_info, **kwargs):
-        try:
-            if error_info['code'] in self.regular_model:
-                code = error_info['code']
-                error_info['name'] = self.regular_model[code].get('regular_classify', '')
-                error_info['regular_details'] = self.regular_model[code].get('regular_details', '')
-                error_info['classification'] = self.regular_model[code].get('classification_flag', '')  # 类别标识
-                error_info['score'] = self.regular_model[code].get('score', '')
-                record_name = self.regular_model[code].get('record_name', '')
-                chapter = self.regular_model[code].get('chapter') or record_name
-                error_info['record_name'] = record_name
-                error_info['chapter'] = chapter
-                error_info['path'] = '{}--{}'.format(record_name, chapter) if chapter != record_name else record_name
-                error_info['test_status'] = False
-            error_info['creator_name'] = kwargs.get('creator_name', '')
-            error_info['html'] = kwargs.get('collection_name', '')
-            error_info['file_time_value'] = kwargs.get('file_time_value', '')
-            error_info['last_modify_date_time'] = kwargs.get('last_modify_date_time', '')  # 文书最后修改时间时间
-            error_info['del_reason'] = ''
-            error_info['test_content'] = {'fenci': '', 'cibiao': '', 'guize': '', 'zhengque': ''}
-        except:
-            self.logger_error.error(traceback.format_exc())
+    def supplement_error_info(self, error_info, creator_name, file_time, collection_name):
+
+        if error_info['code'] in self.regular_model:
+            error_info['name'] = self.regular_model[error_info['code']][0]
+            error_info['regular_details'] = self.regular_model[error_info['code']][1]
+            error_info['path'] = self.regular_model[error_info['code']][2]
+            error_info['score'] = self.regular_model[error_info['code']][3]
+            error_info['test_status'] = False
+        if creator_name:
+            error_info['creator_name'] = creator_name
+        error_info['html'] = collection_name
+        error_info['last_modify_date_time'] = file_time  # 文书时间
+        error_info['batchno'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
+        error_info['del_reason'] = ''
+        error_info['test_content'] = {'fenci': '',
+                                      'cibiao': '',
+                                      'guize': '',
+                                      'zhengque': ''}
         return error_info
 
     def check_chief_time(self, collection_name, **json_file):
@@ -152,6 +150,10 @@ class CheckMultiRecords(object):
         检查主诉时间缺失
         RYJLZS0001
         """
+        if len(self.regular_model.get('RYJLZS0001', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLZS0001'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLZS0001', json_file):
             mongo_result = [json_file]
         else:
@@ -161,11 +163,12 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if collection_name not in collection_data:
                     continue
-                chief_time, flag = self.gain_info._gain_chief_time(collection_data.get(collection_name, dict()).get('chief_complaint', dict()))
+                chief_time, flag = self.gain_info._gain_chief_time(
+                    collection_data[collection_name].get('chief_complaint', dict()))
                 chief_src = self.gain_info._gain_src(cursor=collection_data,
                                                      collection_name=collection_name,
                                                      chapter_name='chief_complaint')
-                if not collection_data.get(collection_name, dict()).get('chief_complaint', dict()):
+                if 'chief_complaint' not in collection_data[collection_name]:
                     continue
                 word_filter = self.conf_dict['check_chief_time']
                 if word_filter.findall(chief_src):  # 含有配置词的 src过滤
@@ -175,9 +178,10 @@ class CheckMultiRecords(object):
                 for content_name in chief_time_copy:
                     if content_name not in chief_src:
                         chief_time.pop(content_name)
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 if chief_time and (not flag):  # 有内容没有时间, flag为True, chief_time必有内容
                     k = list(chief_time.keys())
                     # 演示用，测试时间需要去掉
@@ -185,15 +189,17 @@ class CheckMultiRecords(object):
                     #     continue
                     reason = '主诉中<{0}>没有时间'.format(k[0])
                     if patient_result['pat_info'].get('dept_discharge_from_name', '') == '妇产科':
-                        collection_ruyuanjilu = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
-                                                                                collection_name=collection_name)
+                        collection_ruyuanjilu = self.PushData.connectCollection(
+                            database_name=self.PushData.mongodb_database_name,
+                            collection_name=collection_name)
                         if re.findall('\d*次', chief_src):
                             continue
                         if collection_ruyuanjilu.find_one({'_id': data['_id'],
                                                            'ruyuanjilu.chief_complaint.symptom.freq': {'$exists': True},
-                                                           'ruyuanjilu.chief_complaint.disease.disease_frequency': {'$exists': True}}):
+                                                           'ruyuanjilu.chief_complaint.disease.disease_frequency': {
+                                                               '$exists': True}}):
                             continue
-                elif flag:  # 有时间有内容或者无内容
+                elif flag:  # 有时间有内容
                     continue
                 else:
                     reason = '书写错误，未检出信息'  # 10.24 修改 未提取出主诉内容信息 修改为 书写错误未检出信息
@@ -201,20 +207,16 @@ class CheckMultiRecords(object):
                 # if reason != '未提取出主诉内容信息':  # /TODO 只检测 未提取出主诉内容信息 数据时启用
                 #     continue
                 if self.debug:
-                    self.logger.info('\n主诉缺失时间ZS0001:\n\tid: {0}\n\tchapter: {1}\n\treason: {2}\n\tbatchno: {3}\n'.
-                                     format(data['_id'],
-                                            collection_data[collection_name]['chief_complaint'],
-                                            reason,
-                                            batchno))
+                    logger.info('\n主诉缺失时间ZS0001:\n\tid: {0}\n\tchapter: {1}\n\treason: {2}\n\tbatchno: {3}\n'.
+                                format(data['_id'],
+                                       collection_data[collection_name]['chief_complaint'],
+                                       reason,
+                                       batchno))
                 error_info = {'code': 'RYJLZS0001',
                               'num': num,
                               'chief_src': chief_src,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -224,8 +226,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chief_present(self, collection_name, **json_file):
@@ -239,10 +241,10 @@ class CheckMultiRecords(object):
         regular_code = ['RYJLXBS0001', 'RYJLXBS0005', 'RYJLZS0005']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status', '') != '启用':
-                regular_boolean.append(True)
-            else:
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
                 regular_boolean.append(False)
+            else:
+                regular_boolean.append(True)
         if all(regular_boolean):
             return self.all_result
         if json_file:
@@ -255,7 +257,8 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if collection_name not in collection_data:
                     continue
-                chief_time, chief_flag = self.gain_info._gain_chief_time(collection_data.get(collection_name, dict()).get('chief_complaint', dict()))
+                chief_time, chief_flag = self.gain_info._gain_chief_time(
+                    collection_data[collection_name].get('chief_complaint', dict()))
                 chief_src = self.gain_info._gain_src(cursor=collection_data,
                                                      collection_name=collection_name,
                                                      chapter_name='chief_complaint')
@@ -269,23 +272,21 @@ class CheckMultiRecords(object):
                         chief_time.pop(content_name)
                     if (not chief_shoushu_flag) and '术后' in content_name:
                         chief_shoushu_flag = True
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
 
                 error_info = dict()
                 if 'history_of_present_illness' not in collection_data[collection_name]:
-                    if len(self.regular_model.get('RYJLXBS0001', list())) > 6 and self.regular_model['RYJLXBS0001'][6] == '启用' and self.filter_dept('RYJLXBS0001', data):
+                    if len(self.regular_model.get('RYJLXBS0001', list())) > 6 and self.regular_model['RYJLXBS0001'][
+                        6] == '启用' and self.filter_dept('RYJLXBS0001', data):
                         reason = '没有现病史章节'
                         error_info = {'code': 'RYJLXBS0001',
                                       'num': num,
                                       'chief_src': chief_src,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -294,9 +295,10 @@ class CheckMultiRecords(object):
                                                            collection_name=collection_name,
                                                            chapter_name='history_of_present_illness')  # 现病史 src
                     # RYJLZS0005
-                    if len(self.regular_model.get('RYJLZS0005', list())) > 6 and self.regular_model['RYJLZS0005'][6] == '启用' and self.filter_dept('RYJLZS0005', data):
+                    if len(self.regular_model.get('RYJLZS0005', list())) > 6 and self.regular_model['RYJLZS0005'][
+                        6] == '启用' and self.filter_dept('RYJLZS0005', data):
                         present_symptom = set()
-                        symptom_field = [collection_name+'.history_of_present_illness.time.symptom.symptom_name']
+                        symptom_field = [collection_name + '.history_of_present_illness.time.symptom.symptom_name']
                         for route in symptom_field:
                             present_symptom.update(self.gain_info.getField({'_id': data['_id']}, route))
                         if present_symptom:
@@ -312,17 +314,14 @@ class CheckMultiRecords(object):
                                               'chief_src': chief_src,
                                               'present_src': present_src,
                                               'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                      creator_name=creator_name,
-                                                                      file_time_value=file_time_value,
-                                                                      last_modify_date_time=last_modify_date_time,
-                                                                      collection_name=collection_name)
+                                error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                        collection_name)
                                 if 'score' in error_info:
                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                 patient_result['pat_value'].append(error_info)
                                 num += 1
-                                
-                    present_chapter = collection_data.get(collection_name, dict()).get('history_of_present_illness', dict())
+
+                    present_chapter = collection_data[collection_name]['history_of_present_illness']
                     present_time, present_flag = self.gain_info._gain_present_time(present_chapter)
                     present_only_time = self.gain_info._gain_present_time_value(present_chapter)
 
@@ -340,7 +339,7 @@ class CheckMultiRecords(object):
                         present_content = list(present_time.keys())
                         # {现病史中的词：主诉中的词}  找同义词,找present_content的父节点
                         same_flag = self.gain_info._gain_same_content(present_content, chief_content)
-                        
+
                         if not same_flag:  # or set(chief_content).difference(set(same_flag.values())):
                             # 主诉内容匹配src
                             src_flag = False
@@ -350,14 +349,18 @@ class CheckMultiRecords(object):
                                     break
                             if not src_flag:
                                 if not (chief_shoushu_flag and present_shoushu_flag):
-                                    if self.filter_dept('RYJLXBS0001', data):
-                                        reason = '主诉中<{0}>不在现病史中'.format('，'.join(set(chief_content).difference(set(same_flag.values()))))
+                                    if len(self.regular_model.get('RYJLXBS0001', list())) > 6 and \
+                                            self.regular_model['RYJLXBS0001'][6] == '启用' and self.filter_dept(
+                                            'RYJLXBS0001', data):
+                                        reason = '主诉中<{0}>不在现病史中'.format(
+                                            '，'.join(set(chief_content).difference(set(same_flag.values()))))
                                         if self.debug:
-                                            self.logger.info('\n现病史缺失主诉内容XBS0001:\n\tid: {0}\n\t主诉: {1}\n\t现病史: {2}\n\tbatchno: {3}\n'.
-                                                             format(data['_id'],
-                                                                    collection_data[collection_name]['chief_complaint'],
-                                                                    present_chapter,
-                                                                    batchno))
+                                            logger.info(
+                                                '\n现病史缺失主诉内容XBS0001:\n\tid: {0}\n\t主诉: {1}\n\t现病史: {2}\n\tbatchno: {3}\n'.
+                                                format(data['_id'],
+                                                       collection_data[collection_name]['chief_complaint'],
+                                                       present_chapter,
+                                                       batchno))
                                         error_info = {'code': 'RYJLXBS0001',
                                                       'num': num,
                                                       'chief_src': chief_src,
@@ -365,56 +368,52 @@ class CheckMultiRecords(object):
                                                       'chief_content': '，'.join(chief_content),
                                                       'present_content': '，'.join(present_content),
                                                       'reason': reason}
-                                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                              creator_name=creator_name,
-                                                                              file_time_value=file_time_value,
-                                                                              last_modify_date_time=last_modify_date_time,
-                                                                              collection_name=collection_name)
+                                        error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                                collection_name)
                                         if 'score' in error_info:
                                             patient_result['pat_info']['machine_score'] += error_info['score']
                                         patient_result['pat_value'].append(error_info)
                                         num += 1
-                        # else:
-                        #     part_flag = False
-                        #     part_info = dict()  # {主诉内容 : { 主诉部位: xxx, 现病史部位: xxx}}
-                        #     reason = ''
-                        #     for present, chief in same_flag.items():
-                        #         for value in chief_time.get(chief):
-                        #             if len(value) < 2:
-                        #                 continue
-                        #             if value[1] != '部位':
-                        #                 continue
-                        #             part_info[chief] = {'主诉部位': value[0]}
-                        #         for value in present_time.get(present):
-                        #             if len(value) < 2:
-                        #                 continue
-                        #             if value[1] != '部位':
-                        #                 continue
-                        #             part_info[chief] = {'现病史部位': value[0]}
-                        #     if part_info:
-                        #         for k, values in part_info.items():
-                        #             if ('左' in values.get('主诉部位', '') and '左' not in values.get('现病史部位', '')) or ('右' in values.get('主诉部位', '') and '右' not in values.get('现病史部位', '')):
-                        #                 part_flag = True
-                        #                 reason = '主诉现病史相同内容{}，但是部位不同。'.format(k)
-                        #                 break
-                        #     if part_flag:
-                        #         error_info = {'code': 'RYJLXBS0001',
-                        #                       'num': num,
-                        #                       'chief_src': chief_src,
-                        #                       'present_src': present_src,
-                        #                       'chief_content': '，'.join(chief_content),
-                        #                       'present_content': '，'.join(present_content),
-                        #                       'reason': reason}
-                        #         error_info = self.supplementErrorInfo(error_info=error_info,
-                        #                                               creator_name=creator_name,
-                        #                                               file_time_value=file_time_value,
-                        #                                               last_modify_date_time=last_modify_date_time,
-                        #                                               collection_name=collection_name)
-                        #         if 'score' in error_info:
-                        #             patient_result['pat_info']['machine_score'] += error_info['score']
-                        #         patient_result['pat_value'].append(error_info)
-                        #         num += 1
-                        if self.filter_dept('RYJLXBS0005', data):  # 妇产科不检
+                        else:
+                            part_flag = False
+                            part_info = dict()  # {主诉内容 : { 主诉部位: xxx, 现病史部位: xxx}}
+                            reason = ''
+                            for chief, present in same_flag.items():
+                                for value in chief_time.get(chief):
+                                    if len(value) < 2:
+                                        continue
+                                    if value[1] != '部位':
+                                        continue
+                                    part_info[chief] = {'主诉部位': value[0]}
+                                for value in present_time.get(present):
+                                    if len(value) < 2:
+                                        continue
+                                    if value[1] != '部位':
+                                        continue
+                                    part_info[chief] = {'现病史部位': value[0]}
+                            if part_info:
+                                for k, values in part_info.items():
+                                    if ('左' in values.get('主诉部位', '') and '左' not in values.get('现病史部位', '')) or (
+                                            '右' in values.get('主诉部位', '') and '右' not in values.get('现病史部位', '')):
+                                        part_flag = True
+                                        reason = '主诉现病史相同内容{}，但是部位不同。'.format(k)
+                                        break
+                            if part_flag:
+                                error_info = {'code': 'RYJLXBS0001',
+                                              'num': num,
+                                              'chief_src': chief_src,
+                                              'present_src': present_src,
+                                              'chief_content': '，'.join(chief_content),
+                                              'present_content': '，'.join(present_content),
+                                              'reason': reason}
+                                error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                        collection_name)
+                                if 'score' in error_info:
+                                    patient_result['pat_info']['machine_score'] += error_info['score']
+                                patient_result['pat_value'].append(error_info)
+                                num += 1
+                        if len(self.regular_model.get('RYJLXBS0005', list())) > 6 and self.regular_model['RYJLXBS0005'][
+                            6] == '启用' and self.filter_dept('RYJLXBS0005', data):  # 妇产科不检
                             if patient_result['pat_info'].get('dept_discharge_from_name', '') == '妇产科':  # /TODO 妇产科暂时不检
                                 continue
                             word_filter = self.conf_dict['check_chief_present']
@@ -430,20 +429,23 @@ class CheckMultiRecords(object):
                             only_time = present_all_time.copy()
                             for t in only_time:
                                 if len(t) == 2:
-                                    if t[1] == '具体日期' and file_time_value != '':
+                                    if t[1] == '具体日期' and file_time != '无文书时间':
                                         if '月' in t[0] and '年' not in t[0]:
-                                            trans_date = self.gain_info._calc_time(file_time_value[:4]+'年'+t[0], file_time_value)
+                                            trans_date = self.gain_info._calc_time(file_time[:4] + '年' + t[0],
+                                                                                   file_time)
                                         else:
-                                            trans_date = self.gain_info._calc_time(t[0], file_time_value)
+                                            trans_date = self.gain_info._calc_time(t[0], file_time)
                                         present_all_time.update(trans_date)
                                     elif t[1] == '天':
                                         present_all_time.add((t[0], '日'))
 
                             if '出生时' in present_src:
-                                age = data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value', 0)  # 取年龄
-                                if age and data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value_unit', '') == '岁':
+                                age = data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value',
+                                                                                                    0)  # 取年龄
+                                if age and data.get('binganshouye', dict()).get('pat_visit', dict()).get(
+                                        'age_value_unit', '') == '岁':
                                     present_all_time.add((int(age), '年'))
-                                    
+
                             common_all_time = chief_all_time & present_all_time  # 所有时间的交集
                             diff_time = chief_all_time.difference(common_all_time)
                             diff_time_copy = diff_time.copy()
@@ -457,58 +459,52 @@ class CheckMultiRecords(object):
                                         s = str(time_item[0])
                                 if s in present_src and (time_item in diff_time):
                                     diff_time.remove(time_item)
-                                    if time_item[1] == '年' and ((time_item[0]*12, '月') in diff_time):
-                                        diff_time.remove((time_item[0]*12, '月'))
+                                    if time_item[1] == '年' and ((time_item[0] * 12, '月') in diff_time):
+                                        diff_time.remove((time_item[0] * 12, '月'))
                                     elif time_item[1] == '日' and ((time_item[0], '天') in diff_time):
                                         diff_time.remove((time_item[0], '天'))
                             if diff_time:  # 主诉时间减去交集时间，不为空，则主诉有时间不在现病史中，检出
                                 for time_item in diff_time_copy:
                                     if len(time_item) == 1:
                                         continue
-                                    if time_item[1] == '部位':
-                                        diff_time.remove(time_item)
                                     if str(time_item[0]) not in chief_src:
-                                        if (not str(time_item[0]).endswith('.5')) and (len(diff_time) > 1) and (time_item in diff_time):
+                                        if (not str(time_item[0]).endswith('.5')) and (len(diff_time) > 1) and (
+                                                time_item in diff_time):
                                             diff_time.remove(time_item)
-                                    if time_item[1] == '年' and ((time_item[0]*12, '月') in diff_time):
-                                        diff_time.remove((time_item[0]*12, '月'))
+                                    if time_item[1] == '年' and ((time_item[0] * 12, '月') in diff_time):
+                                        diff_time.remove((time_item[0] * 12, '月'))
                                     elif time_item[1] == '日' and ((time_item[0], '天') in diff_time):
                                         diff_time.remove((time_item[0], '天'))
-                            if diff_time:
                                 reason = '主诉时间<{0}>不存在于现病史时间中'.format(diff_time)
                                 if self.debug:
-                                    self.logger.info('\n现病史缺失主诉时间XBS0005:\n\tid: {0}\n\t主诉: {1}\n\t现病史: {2}\n\tbatchno: {3}\n'.
-                                                     format(data['_id'],
-                                                            collection_data[collection_name]['chief_complaint'],
-                                                            present_chapter,
-                                                            batchno))
+                                    logger.info(
+                                        '\n现病史缺失主诉时间XBS0005:\n\tid: {0}\n\t主诉: {1}\n\t现病史: {2}\n\tbatchno: {3}\n'.
+                                        format(data['_id'],
+                                               collection_data[collection_name]['chief_complaint'],
+                                               present_chapter,
+                                               batchno))
                                 error_info = {'code': 'RYJLXBS0005',
-                                                      'num': num,
-                                                      'chief_src': chief_src,
-                                                      'present_src': present_src,
-                                                      'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                      creator_name=creator_name,
-                                                                      file_time_value=file_time_value,
-                                                                      last_modify_date_time=last_modify_date_time,
-                                                                      collection_name=collection_name)
+                                              'num': num,
+                                              'chief_src': chief_src,
+                                              'present_src': present_src,
+                                              'reason': reason}
+                                error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                        collection_name)
                                 if 'score' in error_info:
                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                 patient_result['pat_value'].append(error_info)
                                 num += 1
                     else:
-                        if self.filter_dept('RYJLXBS0001', data):
+                        if len(self.regular_model.get('RYJLXBS0001', list())) > 6 and self.regular_model['RYJLXBS0001'][
+                            6] == '启用' and self.filter_dept('RYJLXBS0001', data):
                             reason = '现病史章节无时间节点模型'
                             error_info = {'code': 'RYJLXBS0001',
                                           'num': num,
                                           'chief_src': chief_src,
                                           'present_src': present_src,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                  creator_name=creator_name,
-                                                                  file_time_value=file_time_value,
-                                                                  last_modify_date_time=last_modify_date_time,
-                                                                  collection_name=collection_name)
+                            error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -519,8 +515,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_present_time(self, collection_name, **json_file):
@@ -529,6 +525,10 @@ class CheckMultiRecords(object):
         <时间节点N>不应在<时间节点N+1>前，时间未按照顺序描述
         RYJLXBS0004
         """
+        if len(self.regular_model.get('RYJLXBS0004', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLXBS0004'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLXBS0004', json_file):
             mongo_result = [json_file]
         else:
@@ -536,11 +536,13 @@ class CheckMultiRecords(object):
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get('time', ''):
+                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get(
+                        'time', ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 present_src = self.gain_info._gain_src(cursor=collection_data,
                                                        collection_name=collection_name,
                                                        chapter_name='history_of_present_illness')  # 现病史 src
@@ -594,20 +596,16 @@ class CheckMultiRecords(object):
                             break
                 if flag:
                     if self.debug:
-                        self.logger.info('\n现病史时间顺序颠倒XBS0004:\n\tid: {0}\n\t现病史时间节点: {1}\n\tbatchno: {2}\n'.
-                                         format(data['_id'],
-                                                collection_data[collection_name]['history_of_present_illness']['time'],
-                                                batchno))
+                        logger.info('\n现病史时间顺序颠倒XBS0004:\n\tid: {0}\n\t现病史时间节点: {1}\n\tbatchno: {2}\n'.
+                                    format(data['_id'],
+                                           collection_data[collection_name]['history_of_present_illness']['time'],
+                                           batchno))
                     reason = '现病史时间节点未按照顺序描述'
                     error_info = {'code': 'RYJLXBS0004',
                                   'num': num,
                                   'present_src': present_src,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -617,8 +615,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_present_past(self, collection_name, **json_file):
@@ -627,6 +625,10 @@ class CheckMultiRecords(object):
         现病史-时间节点-疾病诊断-诊断名称==既往史-疾病-疾病名称 -->检出
         RYJLJWS0003
         """
+        if len(self.regular_model.get('RYJLJWS0003', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLJWS0003'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLJWS0003', json_file):
             mongo_result = [json_file]
         else:
@@ -634,9 +636,10 @@ class CheckMultiRecords(object):
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 present_src = self.gain_info._gain_src(cursor=collection_data,
                                                        collection_name=collection_name,
                                                        chapter_name='history_of_present_illness')  # 现病史 src
@@ -644,38 +647,37 @@ class CheckMultiRecords(object):
                                                     collection_name=collection_name,
                                                     chapter_name='history_of_past_illness')
                 batchno = collection_data.get('batchno', '')
-                
-                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get('disease', ''):
+
+                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get(
+                        'disease', ''):
                     continue
-                past_dis = self.gain_info._gain_disease_name(collection_data[collection_name]['history_of_past_illness']['disease'])
-                
-                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get('time', ''):
+                past_dis = self.gain_info._gain_disease_name(
+                    collection_data[collection_name]['history_of_past_illness']['disease'])
+
+                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get(
+                        'time', ''):
                     continue
                 present_dia = set()
                 for time_model in collection_data[collection_name]['history_of_present_illness']['time']:
                     if 'diagnose' in time_model:
                         if 'diagnosis_name' in time_model['diagnose']:
                             present_dia.add(time_model['diagnose']['diagnosis_name'])
-                
+
                 common_dis = past_dis & present_dia
                 if common_dis:
                     if self.debug:
-                        self.logger.info('\n既往史重复现病史疾病JWS0003:\n\tid: {0}\n\t现病史: {1}\n\t既往史: {2}\n\tbatchno: {3}\n'.
-                                         format(data['_id'],
-                                                present_dia,
-                                                past_dis,
-                                                batchno))
+                        logger.info('\n既往史重复现病史疾病JWS0003:\n\tid: {0}\n\t现病史: {1}\n\t既往史: {2}\n\tbatchno: {3}\n'.
+                                    format(data['_id'],
+                                           present_dia,
+                                           past_dis,
+                                           batchno))
                     reason = '现病史{0}已描述，不需在既往史中再次提及'.format('，'.join(common_dis))
                     error_info = {'code': 'RYJLJWS0003',
                                   'num': num,
                                   'present_src': present_src,
                                   'past_src': past_src,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -685,8 +687,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_past_diagnosis(self, collection_name, **json_file):
@@ -700,10 +702,10 @@ class CheckMultiRecords(object):
         regular_code = ['RYJLJWS0001', 'RYJLJWS0005']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status', dict()) != '启用':
-                regular_boolean.append(True)
-            else:
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
                 regular_boolean.append(False)
+            else:
+                regular_boolean.append(True)
         if all(regular_boolean):
             return self.all_result
         if json_file:
@@ -718,13 +720,16 @@ class CheckMultiRecords(object):
             try:
                 admission_time = data.get('binganshouye', dict()).get('pat_visit', dict()).get('admission_time', '')
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
 
-                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get('disease', ''):
+                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get(
+                        'disease', ''):
                     continue
-                past_dis = self.gain_info._gain_disease_name(collection_data[collection_name]['history_of_past_illness']['disease'])
+                past_dis = self.gain_info._gain_disease_name(
+                    collection_data[collection_name]['history_of_past_illness']['disease'])
                 past_src = self.gain_info._gain_src(cursor=collection_data,
                                                     collection_name=collection_name,
                                                     chapter_name='history_of_past_illness')
@@ -738,28 +743,26 @@ class CheckMultiRecords(object):
                         past_dis.remove(i)
                 error_info = dict()
                 if 'diagnosis_name' not in collection_data[collection_name]:
-                    if len(self.regular_model.get('RYJLJWS0001', list())) > 6 and self.regular_model['RYJLJWS0001'][6] != '启用' and self.filter_dept('RYJLJWS0001', data):
+                    if len(self.regular_model.get('RYJLJWS0001', list())) > 6 and self.regular_model['RYJLJWS0001'][
+                        6] != '启用' and self.filter_dept('RYJLJWS0001', data):
                         continue
                     if self.debug:
-                        self.logger.info('\n初步诊断缺失JWS0001:\n\tid: {0}\n\tchapter_names: {1}\n\tbatchno: {2}\n'.
-                                         format(data['_id'],
-                                                list(collection_data[collection_name].keys()),
-                                                batchno))
+                        logger.info('\n初步诊断缺失JWS0001:\n\tid: {0}\n\tchapter_names: {1}\n\tbatchno: {2}\n'.
+                                    format(data['_id'],
+                                           list(collection_data[collection_name].keys()),
+                                           batchno))
                     reason = '未获取到初步诊断'
                     error_info = {'code': 'RYJLJWS0001',
                                   'num': num,
                                   'past_src': past_src,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
                 else:
-                    diagnosis_dis = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                    diagnosis_dis = self.gain_info._gain_diagnosis_name(
+                        collection_data[collection_name]['diagnosis_name'])
                     detect_dis = list()
                     shu_flag = False
                     for dis in past_dis:
@@ -767,16 +770,14 @@ class CheckMultiRecords(object):
                             detect_dis.append('高血压')
                         elif self.gain_info._gain_same_content(['糖尿病'], [dis]):
                             detect_dis.append('糖尿病')
-                        elif self.gain_info._gain_same_content(['冠心病'], [dis]):
-                            detect_dis.append('冠心病')
-                        # elif self.gain_info._gain_same_content(['癌'], [dis]):
-                        #     detect_dis.append(dis)
-                        #     if re.findall('(?<!否认手)术', past_src) and (not re.findall('手术史', past_src)):
-                        #         shu_flag = True
-                        # elif self.gain_info._gain_same_content(['瘤'], [dis]):
-                        #     detect_dis.append(dis)
-                        #     if re.findall('(?<!否认手)术', past_src) and (not re.findall('手术史', past_src)):
-                        #         shu_flag = True
+                        elif self.gain_info._gain_same_content(['癌'], [dis]):
+                            detect_dis.append(dis)
+                            if re.findall('(?<!否认手)术', past_src) and (not re.findall('手术史', past_src)):
+                                shu_flag = True
+                        elif self.gain_info._gain_same_content(['瘤'], [dis]):
+                            detect_dis.append(dis)
+                            if re.findall('(?<!否认手)术', past_src) and (not re.findall('手术史', past_src)):
+                                shu_flag = True
                     past_dis_sub = set(detect_dis)
                     if shu_flag:
                         past_dis_sub.add('术后')
@@ -797,7 +798,8 @@ class CheckMultiRecords(object):
                                     flag = True
                                     lost_dis = i
                                     break
-                    if flag and len(self.regular_model.get('RYJLJWS0001', list())) > 6 and (self.regular_model['RYJLJWS0001'][6] == '启用') and self.filter_dept('RYJLJWS0001', data):
+                    if flag and len(self.regular_model.get('RYJLJWS0001', list())) > 6 and (
+                            self.regular_model['RYJLJWS0001'][6] == '启用') and self.filter_dept('RYJLJWS0001', data):
                         final_flag = False
                         shoushu_result = collection_shoushu.find_one({'_id': data['_id']}, {})
                         if shoushu_result:
@@ -812,20 +814,23 @@ class CheckMultiRecords(object):
                                 for one_record in yizhu:
                                     if one_record.get('order_time', '')[:10] == admission_time[:10]:
                                         if one_record.get('order_item_name', ''):
-                                            if self.gain_info._gain_same_content([one_record.get('order_item_name', '')], jiangyayao):
+                                            if self.gain_info._gain_same_content(
+                                                    [one_record.get('order_item_name', '')], jiangyayao):
                                                 final_flag = True
                                                 break
                                         if one_record.get('china_approved_drug_name', ''):
-                                            if self.gain_info._gain_same_content([one_record.get('china_approved_drug_name', '')], jiangyayao):
+                                            if self.gain_info._gain_same_content(
+                                                    [one_record.get('china_approved_drug_name', '')], jiangyayao):
                                                 final_flag = True
                                                 break
                         if final_flag:
                             if self.debug:
-                                self.logger.info('\n初步诊断缺失既往史疾病JWS0001:\n\tid: {0}\n\t既往史: {1}\n\t初步诊断: {2}\n\tbatchno: {3}\n'.
-                                                 format(data['_id'],
-                                                        '，'.join(past_dis_sub),
-                                                        '，'.join(diagnosis_dis),
-                                                        batchno))
+                                logger.info(
+                                    '\n初步诊断缺失既往史疾病JWS0001:\n\tid: {0}\n\t既往史: {1}\n\t初步诊断: {2}\n\tbatchno: {3}\n'.
+                                    format(data['_id'],
+                                           '，'.join(past_dis_sub),
+                                           '，'.join(diagnosis_dis),
+                                           batchno))
                             if '高血压' == lost_dis or '糖尿病' == lost_dis:
                                 reason = '患者含手术或药物治疗，既往史中<{0}>等疾病未在初步诊断中找到'.format(lost_dis)
                             else:
@@ -835,11 +840,8 @@ class CheckMultiRecords(object):
                                           'past_src': past_src,
                                           'diagnosis_name': '，'.join(diagnosis_dis),
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                  creator_name=creator_name,
-                                                                  file_time_value=file_time_value,
-                                                                  last_modify_date_time=last_modify_date_time,
-                                                                  collection_name=collection_name)
+                            error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -851,24 +853,22 @@ class CheckMultiRecords(object):
                             first_dis = dis['diagnosis_name']
                             break
 
-                    if first_dis and (first_dis in past_dis) and len(self.regular_model.get('RYJLJWS0005', list())) > 6 and self.regular_model['RYJLJWS0005'][6] == '启用' and self.filter_dept('RYJLJWS0005', data):
+                    if first_dis and (first_dis in past_dis) and len(
+                            self.regular_model.get('RYJLJWS0005', list())) > 6 and self.regular_model['RYJLJWS0005'][
+                        6] == '启用' and self.filter_dept('RYJLJWS0005', data):
                         if self.debug:
-                            self.logger.info('\n既往史含初步诊断首要诊断JWS0005:\n\tid: {0}\n\t既往史: {1}\n\t初步诊断: {2}\n\tbatchno: {3}\n'.
-                                             format(data['_id'],
-                                                    '，'.join(past_dis),
-                                                    first_dis,
-                                                    batchno))
+                            logger.info('\n既往史含初步诊断首要诊断JWS0005:\n\tid: {0}\n\t既往史: {1}\n\t初步诊断: {2}\n\tbatchno: {3}\n'.
+                                        format(data['_id'],
+                                               '，'.join(past_dis),
+                                               first_dis,
+                                               batchno))
                         reason = '既往史含初步诊断首要诊断<{0}>'.format(first_dis)
                         error_info = {'code': 'RYJLJWS0005',
                                       'num': num,
                                       'past_src': past_src,
                                       'first_disease': first_dis,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -880,8 +880,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_past_deny(self, collection_name, **json_file):
@@ -890,6 +890,10 @@ class CheckMultiRecords(object):
         既往史--疾病--疾病名称 == 否认的项目 and 既往史--手术--手术名称 == 否认的项目（否认手术史）(RYJLJWS0006)
         RYJLJWS0006
         """
+        if len(self.regular_model.get('RYJLJWS0006', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLJWS0006'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLJWS0006', json_file):
             mongo_result = [json_file]
         else:
@@ -899,9 +903,10 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if collection_name not in collection_data:
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 past_src = self.gain_info._gain_src(cursor=collection_data,
                                                     collection_name=collection_name,
                                                     chapter_name='history_of_past_illness')
@@ -921,21 +926,17 @@ class CheckMultiRecords(object):
                     reason = '既往史中有手术史与否认手术史同时存在'
                 if reason:
                     if self.debug:
-                        self.logger.info('\n既往史与否认同时存在JWS0006:\n\tid: {0}\n\t既往史: {1}\n\t否认项: {2}\n\tbatchno: {3}\n'.
-                                         format(data['_id'],
-                                                '，'.join(past_content),
-                                                '，'.join(deny),
-                                                batchno))
+                        logger.info('\n既往史与否认同时存在JWS0006:\n\tid: {0}\n\t既往史: {1}\n\t否认项: {2}\n\tbatchno: {3}\n'.
+                                    format(data['_id'],
+                                           '，'.join(past_content),
+                                           '，'.join(deny),
+                                           batchno))
                     error_info = {'code': 'RYJLJWS0006',
                                   'num': num,
                                   'past_src': past_src,
                                   'deny': past_chapter.get('deny', ''),
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -945,8 +946,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_past_guominshi(self, collection_name, **json_file):
@@ -956,6 +957,10 @@ class CheckMultiRecords(object):
         暂时不检测输血史
         RYJLJWS0007
         """
+        if len(self.regular_model.get('RYJLJWS0007', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLJWS0007'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLJWS0007', json_file):
             mongo_result = [json_file]
         else:
@@ -965,11 +970,13 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()):
                     continue
-                dept = patient_result.get('pat_info', dict()).get('dept_discharge_from_name', '') or patient_result.get('pat_info', dict()).get('dept_admission_to_name', '')
+                dept = patient_result.get('pat_info', dict()).get('dept_discharge_from_name', '') or patient_result.get(
+                    'pat_info', dict()).get('dept_admission_to_name', '')
                 person_name = data.get('binganshouye', dict()).get('pat_info', dict()).get('person_name', '')
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 past_src = self.gain_info._gain_src(cursor=collection_data,
                                                     collection_name=collection_name,
                                                     chapter_name='history_of_past_illness')
@@ -988,27 +995,24 @@ class CheckMultiRecords(object):
                 # if 'blood_transfusion_times' not in collection_data[collection_name]['history_of_past_illness']:
                 #     lost_content.add('输血史')
                 if 'deny' in collection_data[collection_name]['history_of_past_illness']:
-                    if ('过敏' in collection_data[collection_name]['history_of_past_illness']['deny']) and ('过敏史' in lost_content):
+                    if ('过敏' in collection_data[collection_name]['history_of_past_illness']['deny']) and (
+                            '过敏史' in lost_content):
                         lost_content.remove('过敏史')
                     # elif ('输血' in collection_data[collection_name]['history_of_past_illness']['deny']) and ('输血史' in lost_content):
                     #     lost_content.remove('输血史')
                 if lost_content:
                     if self.debug:
-                        self.logger.info('\n既往史缺失过敏史JWS0007:\n\tid: {0}\n\t既往史: {1}\n\t缺失: {2}\n\tbatchno: {3}\n'.
-                                         format(data['_id'],
-                                                collection_data[collection_name]['history_of_past_illness'],
-                                                '，'.join(lost_content),
-                                                batchno))
+                        logger.info('\n既往史缺失过敏史JWS0007:\n\tid: {0}\n\t既往史: {1}\n\t缺失: {2}\n\tbatchno: {3}\n'.
+                                    format(data['_id'],
+                                           collection_data[collection_name]['history_of_past_illness'],
+                                           '，'.join(lost_content),
+                                           batchno))
                     reason = '既往史缺失<{0}>'.format('/'.join(lost_content))
                     error_info = {'code': 'RYJLJWS0007',
                                   'num': num,
                                   'past_src': past_src,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -1018,8 +1022,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_past_guominyuan(self, collection_name, **json_file):
@@ -1033,7 +1037,10 @@ class CheckMultiRecords(object):
         皮试原名称 不等于 病案首页--就诊信息--过敏药物） -->检出
         RYJLJWS0010
         """
-        return self.all_result
+        if len(self.regular_model.get('RYJLJWS0010', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLJWS0010'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLJWS0010', json_file):
             mongo_result = [json_file]
         else:
@@ -1041,49 +1048,50 @@ class CheckMultiRecords(object):
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                if collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get('allergy_indicator', '') != '是':
+                if collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get(
+                        'allergy_indicator', '') != '是':
                     continue
-                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get('allergy', ''):
+                if not collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get(
+                        'allergy', ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
                 batchno = collection_data.get('batchno', '')
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 allergy = set()
                 for a in collection_data[collection_name]['history_of_past_illness']['allergy']:
                     if a.get('drug_allergy', '') == '是' and a.get('allergy_name', ''):
                         allergy.add(a['allergy_name'])
-                    if a.get('skin_test', '') == '是' and a.get('skin_test_value') == '阳性' and a.get('skin_test_name', ''):
+                    if a.get('skin_test', '') == '是' and a.get('skin_test_value') == '阳性' and a.get('skin_test_name',
+                                                                                                    ''):
                         allergy.add(a['skin_test_name'])
                 if not allergy:
                     continue
                 flag = False
-                # diff_allergy = set()
-                if data['binganshouye']['pat_visit'].get('drug_allergy_name'):
+                diff_allergy = set()
+                if 'drug_allergy_name' in data['binganshouye']['pat_visit']:
                     for a in allergy:
                         if a not in data['binganshouye']['pat_visit']['drug_allergy_name']:
                             flag = True
-                            # diff_allergy.add(a)
-                    reason = '过敏史<{0}>与病案首页<{1}>不符'.format('，'.join(allergy), data['binganshouye']['pat_visit']['drug_allergy_name'])
+                            diff_allergy.add(a)
+                    reason = '过敏史<{0}>与病案首页<{1}>不符'.format('，'.join(diff_allergy),
+                                                           data['binganshouye']['pat_visit']['drug_allergy_name'])
                 else:
                     flag = True
-                    # diff_allergy = allergy
-                    reason = '过敏史<{0}>与病案首页<null>不符'.format('，'.join(allergy))
+                    diff_allergy = allergy
+                    reason = '过敏史<{0}>与病案首页<null>不符'.format('，'.join(diff_allergy))
                 if flag:
                     if self.debug:
-                        self.logger.info('\n过敏史与病案首页不符JWS0010:\n\tid: {0}\n\treason: {1}\n\tbatchno: {2}\n'.
-                                         format(data['_id'],
-                                                reason,
-                                                batchno))
+                        logger.info('\n过敏史与病案首页不符JWS0010:\n\tid: {0}\n\treason: {1}\n\tbatchno: {2}\n'.
+                                    format(data['_id'],
+                                           reason,
+                                           batchno))
                     error_info = {'code': 'RYJLJWS0010',
                                   'num': num,
-                                  'allergy': '，'.join(allergy),
+                                  'allergy': '，'.join(diff_allergy),
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -1093,8 +1101,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_present_past_operation(self, collection_name, **json_file):
@@ -1103,6 +1111,10 @@ class CheckMultiRecords(object):
         现病史--手术--手术名称==非NULL and 既往史--否认的项目（否认手术史） -->检出
         RYJLJWS0008
         """
+        if len(self.regular_model.get('RYJLJWS0008', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLJWS0008'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLJWS0008', json_file):
             mongo_result = [json_file]
         else:
@@ -1110,11 +1122,13 @@ class CheckMultiRecords(object):
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                if '手术史' not in collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get('deny', ''):
+                if '手术史' not in collection_data.get(collection_name, dict()).get('history_of_past_illness', dict()).get(
+                        'deny', ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 batchno = collection_data.get('batchno', '')
                 present_src = self.gain_info._gain_src(cursor=collection_data,
                                                        collection_name=collection_name,
@@ -1123,7 +1137,8 @@ class CheckMultiRecords(object):
                                                     collection_name=collection_name,
                                                     chapter_name='history_of_past_illness')
                 operation_name = set()
-                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get('time', ''):
+                if not collection_data.get(collection_name, dict()).get('history_of_present_illness', dict()).get(
+                        'time', ''):
                     continue
                 for t in collection_data[collection_name]['history_of_present_illness']['time']:
                     if 'operation' in t:
@@ -1133,22 +1148,18 @@ class CheckMultiRecords(object):
                 if not operation_name:
                     continue
                 if self.debug:
-                    self.logger.info('\n现病史含手术, 既往史否认手术史JWS0008:\n\tid: {0}\n\t现病史: {1}\n\t既往史否认项: {2}\n\tbatchno: {3}\n'.
-                                     format(data['_id'],
-                                            '，'.join(operation_name),
-                                            collection_data[collection_name]['history_of_past_illness'].get('deny', ''),
-                                            batchno))
+                    logger.info('\n现病史含手术, 既往史否认手术史JWS0008:\n\tid: {0}\n\t现病史: {1}\n\t既往史否认项: {2}\n\tbatchno: {3}\n'.
+                                format(data['_id'],
+                                       '，'.join(operation_name),
+                                       collection_data[collection_name]['history_of_past_illness'].get('deny', ''),
+                                       batchno))
                 reason = '现病史含手术<{0}>，既往史否认手术史'.format('/'.join(operation_name))
                 error_info = {'code': 'RYJLJWS0008',
                               'num': num,
                               'present_src': present_src,
                               'past_src': past_src,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -1158,8 +1169,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_repeat(self, collection_name, **json_file):
@@ -1171,10 +1182,10 @@ class CheckMultiRecords(object):
         regular_code = ['RYJLZS0003', 'RYJLXBS0006', 'RYJLJWS0009', 'RYJLJWS0011', 'RYJLGRS0001']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') != '启用':
-                regular_boolean.append(True)
-            else:
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
                 regular_boolean.append(False)
+            else:
+                regular_boolean.append(True)
         if all(regular_boolean):
             return self.all_result
         detect_id = ''
@@ -1185,43 +1196,22 @@ class CheckMultiRecords(object):
                 detect_id = self.hospital_code + '#' + patient_id + '#' + visit_id
             if not detect_id:
                 return self.all_result
-            expression = [
-                            [
-                                {"field": "患者标识", "exp": "=", "flag": "or", "unit": "", "values": [patient_id]}
-                            ],
-                            [
-                                {"field": "入院记录_文档src", "exp": "!=", "flag": "or", "unit": "", "values": ["111"]}
-                            ]
-                        ]
-            es_result = self.app_es.getId(expression)
-            if es_result.get('res_flag') and es_result.get('count'):
-                key = '{}#{}'.format(self.hospital_code, patient_id)
-                id_result = {key: list()}
-                for i in es_result.get('result', set()):
-                    past_vid = i.split('#')[-1]
-                    id_result[key].append(past_vid)
-                if id_result[key]:
-                    id_result[key].append(visit_id)
-                else:
-                    return self.all_result
-                id_result[key].sort(key=lambda l: int(l))
-            else:
-                return self.all_result
-            # for v in id_result.values():
-            #     v.append(visit_id)
-            #     v.sort(key=lambda l: int(l))
+            id_result = self.gain_info.compose_wslb(collection_name, patient_id)
+            for v in id_result.values():
+                v.append(visit_id)
+                v.sort(key=lambda l: int(l))
         else:
             return self.all_result
 
-        # collection_bingan = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
-        #                                                     collection_name='binganshouye')
-        # collection_ruyuanjilu = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
-        #                                                         collection_name=collection_name)
+        collection_bingan = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
+                                                            collection_name='binganshouye')
+        collection_ruyuanjilu = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
+                                                                collection_name=collection_name)
         start_date = self.time_limits.get('binganshouye.pat_visit.discharge_time', dict()).get('$gte', '')
         end_date = self.time_limits.get('binganshouye.pat_visit.discharge_time', dict()).get('$lt', '')
         for data in id_result:
             try:
-                id_list = [data+'#'+i for i in id_result[data]]
+                id_list = [data + '#' + i for i in id_result[data]]
                 chief_list = list()
                 present_list = list()
                 past_list = list()
@@ -1229,7 +1219,6 @@ class CheckMultiRecords(object):
                 smoke_list = list()
                 time_list = list()
                 creator_list = list()
-                create_time = list()
                 patient_list = list()
                 num_list = list()
                 detect_flag = False  # 检测目标id是否在 id_list 中，不在则中止规则查询
@@ -1242,24 +1231,14 @@ class CheckMultiRecords(object):
                         if 'binganshouye' in json_file:
                             patient_bingan['binganshouye'] = json_file['binganshouye']
                     else:
+                        condition = dict()
+                        # condition.update(time_limits)
+                        condition['_id'] = _id
                         if _id in self.processed:
                             continue
-                        condition = dict()
-                        condition['_id'] = _id
-                        # condition.update(time_limits)
-                        if not self.hospital_code == _id.split('#')[0]:
-                            continue
-                        patient_id, visit_id = _id.split('#')[1:]
-                        patient_bingan = self.app_es.getRecordQuickly(patient_id, visit_id, 'binganshouye')
-                        if not patient_bingan:
-                            id_list.remove(_id)
-                            if detect_id not in id_list:
-                                detect_flag = True
-                                break
-                            continue
-                        # patient_bingan = collection_bingan.find_one(condition,
-                        #                                             {'binganshouye.pat_info.person_name': 1,
-                        #                                              'binganshouye.pat_visit': 1})
+                        patient_bingan = collection_bingan.find_one(condition,
+                                                                    {'binganshouye.pat_info.person_name': 1,
+                                                                     'binganshouye.pat_visit': 1})
                         self.processed.add(_id)
                     if not patient_bingan:
                         id_list.remove(_id)
@@ -1274,20 +1253,28 @@ class CheckMultiRecords(object):
                         if collection_name in json_file:
                             patient_ruyuan = json_file[collection_name][0]
                     else:
-                        patient_ruyuan = self.app_es.getRecordQuickly(patient_id, visit_id, 'ruyuanjilu')
-                        # patient_ruyuan = collection_ruyuanjilu.find_one({'_id': _id,
-                        #                                                  '$or': [{collection_name+'.chief_complaint': {'$exists': True}},
-                        #                                                          {collection_name+'.history_of_present_illness': {'$exists': True}},
-                        #                                                          {collection_name+'.social_history': {'$exists': True}},
-                        #                                                          {collection_name+'.history_of_past_illness.allergy.allergy_name': {'$exists': True}},
-                        #                                                          {collection_name+'.history_of_past_illness.disease': {'$exists': True}}]},
-                        #                                                 {collection_name+'.chief_complaint.src': 1,
-                        #                                                  collection_name+'.history_of_present_illness.src': 1,
-                        #                                                  collection_name+'.social_history.smoke_indicator': 1,
-                        #                                                  collection_name+'.history_of_past_illness.disease': 1,
-                        #                                                  collection_name+'.history_of_past_illness.allergy.allergy_name': 1,
-                        #                                                  collection_name+'.creator_name': 1,
-                        #                                                  collection_name+'.last_modify_date_time': 1})
+                        patient_ruyuan = collection_ruyuanjilu.find_one({'_id': _id,
+                                                                         '$or': [{
+                                                                                     collection_name + '.chief_complaint': {
+                                                                                         '$exists': True}},
+                                                                                 {
+                                                                                     collection_name + '.history_of_present_illness': {
+                                                                                         '$exists': True}},
+                                                                                 {collection_name + '.social_history': {
+                                                                                     '$exists': True}},
+                                                                                 {
+                                                                                     collection_name + '.history_of_past_illness.allergy.allergy_name': {
+                                                                                         '$exists': True}},
+                                                                                 {
+                                                                                     collection_name + '.history_of_past_illness.disease': {
+                                                                                         '$exists': True}}]},
+                                                                        {collection_name + '.chief_complaint.src': 1,
+                                                                         collection_name + '.history_of_present_illness.src': 1,
+                                                                         collection_name + '.social_history.smoke_indicator': 1,
+                                                                         collection_name + '.history_of_past_illness.disease': 1,
+                                                                         collection_name + '.history_of_past_illness.allergy.allergy_name': 1,
+                                                                         collection_name + '.creator_name': 1,
+                                                                         collection_name + '.last_modify_date_time': 1})
                     if not patient_ruyuan:
                         id_list.remove(_id)
                         if detect_id not in id_list:
@@ -1295,7 +1282,8 @@ class CheckMultiRecords(object):
                             break
                         continue
                     chief_src = self.gain_info._gain_src(patient_ruyuan, collection_name, 'chief_complaint')
-                    present_src = self.gain_info._gain_src(patient_ruyuan, collection_name, 'history_of_present_illness')
+                    present_src = self.gain_info._gain_src(patient_ruyuan, collection_name,
+                                                           'history_of_present_illness')
                     past_chapter = patient_ruyuan.get(collection_name, dict()).get('history_of_past_illness', dict())
                     past_dis = set()
                     allergy = set()
@@ -1306,50 +1294,51 @@ class CheckMultiRecords(object):
                             for a in past_chapter.get('allergy', list()):
                                 if 'allergy_name' in a:
                                     allergy.add(a['allergy_name'])
-                    if 'social_history' in patient_ruyuan[collection_name] and 'smoke_indicator' in patient_ruyuan[collection_name]['social_history']:
+                    if 'social_history' in patient_ruyuan[collection_name] and 'smoke_indicator' in \
+                            patient_ruyuan[collection_name]['social_history']:
                         smoke_list.append(True)
                     else:
                         smoke_list.append(False)
-                    creator_name = patient_ruyuan.get(collection_name, dict()).get('creator_name', '')
-                    last_modify_date_time = patient_ruyuan.get(collection_name, dict()).get('last_modify_date_time', '')
-                    file_time_value = patient_ruyuan.get(collection_name, dict()).get('file_time_value', '')
+                    file_time = self.gain_info._gain_file_time(patient_ruyuan, collection_name)
+                    creator_name = self.gain_info._gain_file_creator(cursor=patient_ruyuan,
+                                                                     collection_name=collection_name)
                     chief_list.append(chief_src)
                     present_list.append(present_src)
                     past_list.append(past_dis)
                     allergy_list.append(allergy)
-                    time_list.append(last_modify_date_time)
+                    time_list.append(file_time)
                     creator_list.append(creator_name)
                     patient_list.append(patient_result)
                     num_list.append(num)
-                    create_time.append(file_time_value)
 
                 if detect_flag:  # 如果要查询的 visit_id 不在 id_list 中，则跳过此患者的查询
                     continue
 
-                if self.filter_dept('RYJLJWS0009', json_file):
+                if len(self.regular_model.get('RYJLJWS0009', list())) > 6 and self.regular_model['RYJLJWS0009'][
+                    6] == '启用' and self.filter_dept('RYJLJWS0009', json_file):
                     if any(past_list) and len(past_list) > 1:  # RYJLJWS0009
                         for index in range(1, len(past_list)):
                             if detect_id and id_list[index] != detect_id:  # 如果有目标 id，那么只检测目标 id
                                 continue
-                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time', '') < end_date) and (not json_file):
+                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time',
+                                                                                     '') < end_date) and (
+                            not json_file):
                                 continue
-                            if self.gain_info._gain_same_content(['高血压'], past_list[index-1]):  # 前次就诊既往史中有高血压
+                            if self.gain_info._gain_same_content(['高血压'], past_list[index - 1]):  # 前次就诊既往史中有高血压
                                 if not self.gain_info._gain_same_content(['高血压'], past_list[index]):  # 本次就诊既往史中没有高血压
                                     if self.debug:
-                                        self.logger.info('\n多个就诊次既往史高血压JWS0009：\n\tid: {0}\n\tlast_disease: {1}\n\tthis_disease: {2}\n'.
-                                                         format(id_list[index],
-                                                                '/'.join(past_list[index-1]),
-                                                                '/'.join(past_list[index])))
+                                        logger.info(
+                                            '\n多个就诊次既往史高血压JWS0009：\n\tid: {0}\n\tlast_disease: {1}\n\tthis_disease: {2}\n'.
+                                            format(id_list[index],
+                                                   '/'.join(past_list[index - 1]),
+                                                   '/'.join(past_list[index])))
                                     reason = '前次既往史中“高血压”未出现在本次既往史中'
                                     error_info = {'code': 'RYJLJWS0009',
                                                   'num': num_list[index],
-                                                  'last_id': id_list[index-1],
+                                                  'last_id': id_list[index - 1],
                                                   'reason': reason}
-                                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                          creator_name=creator_list[index],
-                                                                          file_time_value=create_time[index],
-                                                                          last_modify_date_time=time_list[index],
-                                                                          collection_name=collection_name)
+                                    error_info = self.supplement_error_info(error_info, creator_list[index],
+                                                                            time_list[index], collection_name)
                                     if 'score' in error_info:
                                         patient_list[index]['pat_info']['machine_score'] += error_info['score']
                                     patient_list[index]['pat_value'].append(error_info)
@@ -1359,33 +1348,36 @@ class CheckMultiRecords(object):
                                     num_list[index] += 1
                                     self.all_result[id_list[index]] = patient_list[index]
 
-                if self.filter_dept('RYJLJWS0011', json_file):
+                if len(self.regular_model.get('RYJLJWS0011', list())) > 6 and self.regular_model['RYJLJWS0011'][
+                    6] == '启用' and self.filter_dept('RYJLJWS0011', json_file):
                     if any(allergy_list) and len(allergy_list) > 1:  # RYJLJWS0011
                         for index in range(1, len(allergy_list)):
                             if detect_id and id_list[index] != detect_id:  # 如果有目标 id，那么只检测目标 id
                                 continue
-                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time', '') < end_date) and (not json_file):
+                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time',
+                                                                                     '') < end_date) and (
+                            not json_file):
                                 continue
-                            same_allergy = self.gain_info._gain_same_content(allergy_list[index-1], allergy_list[index])  # 前一次和这一次比
-                            if len(same_allergy) != len(allergy_list[index-1]):
-                                lost_allergy = allergy_list[index-1].difference(set(same_allergy.keys()))
-                                reason = '前次就诊次过敏史<{0}>不存在于本次过敏史<{1}>中'.format('，'.join(lost_allergy), '，'.join(allergy_list[index]))
+                            same_allergy = self.gain_info._gain_same_content(allergy_list[index - 1],
+                                                                             allergy_list[index])  # 前一次和这一次比
+                            if len(same_allergy) != len(allergy_list[index - 1]):
+                                lost_allergy = allergy_list[index - 1].difference(set(same_allergy.keys()))
+                                reason = '前次就诊次过敏史<{0}>不存在于本次过敏史<{1}>中'.format('，'.join(lost_allergy),
+                                                                               '，'.join(allergy_list[index]))
                                 if not allergy_list[index]:
                                     reason = '前次就诊次过敏史<{0}>不存在于本次过敏史<null>中'.format('，'.join(lost_allergy))
                                 if self.debug:
-                                    self.logger.info('\n多个就诊次既往史过敏JWS0011：\n\tid: {0}\n\tlast_allergy: {1}\n\tthis_allergy: {2}\n'.
-                                                     format(id_list[index],
-                                                            '/'.join(allergy_list[index-1]),
-                                                            '/'.join(allergy_list[index])))
+                                    logger.info(
+                                        '\n多个就诊次既往史过敏JWS0011：\n\tid: {0}\n\tlast_allergy: {1}\n\tthis_allergy: {2}\n'.
+                                        format(id_list[index],
+                                               '/'.join(allergy_list[index - 1]),
+                                               '/'.join(allergy_list[index])))
                                 error_info = {'code': 'RYJLJWS0011',
                                               'num': num_list[index],
-                                              'last_id': id_list[index-1],
+                                              'last_id': id_list[index - 1],
                                               'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                      creator_name=creator_list[index],
-                                                                      file_time_value=create_time[index],
-                                                                      last_modify_date_time=time_list[index],
-                                                                      collection_name=collection_name)
+                                error_info = self.supplement_error_info(error_info, creator_list[index],
+                                                                        time_list[index], collection_name)
                                 if 'score' in error_info:
                                     patient_list[index]['pat_info']['machine_score'] += error_info['score']
                                 patient_list[index]['pat_value'].append(error_info)
@@ -1395,28 +1387,29 @@ class CheckMultiRecords(object):
                                 num_list[index] += 1
                                 self.all_result[id_list[index]] = patient_list[index]
 
-                if self.filter_dept('RYJLGRS0001', json_file):
+                if len(self.regular_model.get('RYJLGRS0001', list())) > 6 and self.regular_model['RYJLGRS0001'][
+                    6] == '启用' and self.filter_dept('RYJLGRS0001', json_file):
                     if any(smoke_list) and len(smoke_list) > 1:  # RYJLGRS0001
                         for index in range(1, len(smoke_list)):
-                            dept = patient_list[index]['pat_info'].get('dept_discharge_from_name', '') or patient_list[index]['pat_info'].get('dept_admission_to_name', '')
+                            dept = patient_list[index]['pat_info'].get('dept_discharge_from_name', '') or \
+                                   patient_list[index]['pat_info'].get('dept_admission_to_name', '')
                             if dept not in ['心血管科', '心脏外科', '呼吸科', '老年病内科', '胸外科', '肿瘤化疗与放射病科', '肿瘤放疗科']:
                                 continue
                             if detect_id and id_list[index] != detect_id:  # 如果有目标 id，那么只检测目标 id
                                 continue
-                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time', '') < end_date) and (not json_file):
+                            if not (start_date < patient_list[index]['pat_info'].get('discharge_time',
+                                                                                     '') < end_date) and (
+                            not json_file):
                                 continue
                             if not smoke_list[index]:
-                                if smoke_list[index-1]:
+                                if smoke_list[index - 1]:
                                     reason = '前次吸烟史未在本次吸烟史中记录'
                                     error_info = {'code': 'RYJLGRS0001',
                                                   'num': num_list[index],
-                                                  'last_id': id_list[index-1],
+                                                  'last_id': id_list[index - 1],
                                                   'reason': reason}
-                                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                          creator_name=creator_list[index],
-                                                                          file_time_value=create_time[index],
-                                                                          last_modify_date_time=time_list[index],
-                                                                          collection_name=collection_name)
+                                    error_info = self.supplement_error_info(error_info, creator_list[index],
+                                                                            time_list[index], collection_name)
                                     if 'score' in error_info:
                                         patient_list[index]['pat_info']['machine_score'] += error_info['score']
                                     patient_list[index]['pat_value'].append(error_info)
@@ -1426,7 +1419,8 @@ class CheckMultiRecords(object):
                                     num_list[index] += 1
                                     self.all_result[id_list[index]] = patient_list[index]
                 # 查看是否有重复src内容, 返回重复内容的序列号, 双重list
-                if self.filter_dept('RYJLZS0003', json_file):
+                if len(self.regular_model.get('RYJLZS0003', list())) > 6 and self.regular_model['RYJLZS0003'][
+                    6] == '启用' and self.filter_dept('RYJLZS0003', json_file):
                     repeat_index = self.gain_info._check_repeat_content(chief_list)
                     if repeat_index:
                         repeat_res = list()
@@ -1436,13 +1430,14 @@ class CheckMultiRecords(object):
                                     continue
                             repeat = list()
                             for idx_idx in range(1, len(idx_list)):
-                                if len(time_list[idx_list[idx_idx-1]]) < 10 or len(time_list[idx_list[idx_idx]]) < 10:  # 有时间为空的情况
+                                if len(time_list[idx_list[idx_idx - 1]]) < 10 or len(
+                                        time_list[idx_list[idx_idx]]) < 10:  # 有时间为空的情况
                                     continue
-                                visit_date_1 = datetime.strptime(time_list[idx_list[idx_idx-1]][:10], '%Y-%m-%d')
+                                visit_date_1 = datetime.strptime(time_list[idx_list[idx_idx - 1]][:10], '%Y-%m-%d')
                                 visit_date_2 = datetime.strptime(time_list[idx_list[idx_idx]][:10], '%Y-%m-%d')
-                                if abs((visit_date_1-visit_date_2).days) >= 365:
-                                    if idx_list[idx_idx-1] not in repeat:
-                                        repeat.append(idx_list[idx_idx-1])
+                                if abs((visit_date_1 - visit_date_2).days) >= 365:
+                                    if idx_list[idx_idx - 1] not in repeat:
+                                        repeat.append(idx_list[idx_idx - 1])
                                         repeat.append(idx_list[idx_idx])
                                     else:
                                         repeat.append(idx_list[idx_idx])
@@ -1459,10 +1454,13 @@ class CheckMultiRecords(object):
                                         if id_list.index(repeat_id) not in idx_list:
                                             continue
                                         repeat_file.append({'_id': repeat_id,
-                                                            'last_modify_date_time': time_list[id_list.index(repeat_id)],
+                                                            'last_modify_date_time': time_list[
+                                                                id_list.index(repeat_id)],
                                                             'chief_src': chief_list[id_list.index(repeat_id)],
                                                             'creator_name': creator_list[id_list.index(repeat_id)]})
-                                    if not (start_date < patient_list[idx]['pat_info'].get('discharge_time', '') < end_date) and (not json_file):
+                                    if not (start_date < patient_list[idx]['pat_info'].get('discharge_time',
+                                                                                           '') < end_date) and (
+                                    not json_file):
                                         continue
                                     if self.conf_dict['check_repeat'].findall(chief_list[idx]):  # 过滤含特定词的src
                                         continue
@@ -1472,11 +1470,8 @@ class CheckMultiRecords(object):
                                                   'chief_src': chief_list[idx],
                                                   'error_file': repeat_file,
                                                   'reason': reason}
-                                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                          creator_name=creator_list[idx],
-                                                                          file_time_value=create_time[idx],
-                                                                          last_modify_date_time=time_list[idx],
-                                                                          collection_name=collection_name)
+                                    error_info = self.supplement_error_info(error_info, creator_list[idx],
+                                                                            time_list[idx], collection_name)
                                     if 'score' in error_info:
                                         patient_list[idx]['pat_info']['machine_score'] += error_info['score']
                                     patient_list[idx]['pat_value'].append(error_info)
@@ -1486,7 +1481,8 @@ class CheckMultiRecords(object):
                                     num_list[idx] += 1
                                     self.all_result[id_list[idx]] = patient_list[idx]
 
-                if self.filter_dept('RYJLXBS0006', json_file):
+                if len(self.regular_model.get('RYJLXBS0006', list())) > 6 and self.regular_model['RYJLXBS0006'][
+                    6] == '启用' and self.filter_dept('RYJLXBS0006', json_file):
                     repeat_index = self.gain_info._check_repeat_content(present_list)
                     if repeat_index:
                         repeat_res = list()
@@ -1497,8 +1493,8 @@ class CheckMultiRecords(object):
                             repeat = list()
                             for idx_idx in range(1, len(idx_list)):
                                 if idx_list[idx_idx] - idx_list[idx_idx] == 1:  # 现病史为相邻就诊次相同就检测出
-                                    if idx_list[idx_idx-1] not in repeat:
-                                        repeat.append(idx_list[idx_idx-1])
+                                    if idx_list[idx_idx - 1] not in repeat:
+                                        repeat.append(idx_list[idx_idx - 1])
                                         repeat.append(idx_list[idx_idx])
                                     else:
                                         repeat.append(idx_list[idx_idx])
@@ -1515,9 +1511,12 @@ class CheckMultiRecords(object):
                                         if id_list.index(repeat_id) not in idx_list:
                                             continue
                                         repeat_file.append({'_id': repeat_id,
-                                                            'last_modify_date_time': time_list[id_list.index(repeat_id)],
+                                                            'last_modify_date_time': time_list[
+                                                                id_list.index(repeat_id)],
                                                             'creator_name': creator_list[id_list.index(repeat_id)]})
-                                    if not (start_date < patient_list[idx]['pat_info'].get('discharge_time', '') < end_date) and (not json_file):
+                                    if not (start_date < patient_list[idx]['pat_info'].get('discharge_time',
+                                                                                           '') < end_date) and (
+                                    not json_file):
                                         continue
                                     reason = '同一病人相邻就诊次，现病史内容相同'
                                     error_info = {'code': 'RYJLXBS0006',
@@ -1525,11 +1524,8 @@ class CheckMultiRecords(object):
                                                   'present_src': present_list[idx],
                                                   'error_file': repeat_file,
                                                   'reason': reason}
-                                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                          creator_name=creator_list[idx],
-                                                                          file_time_value=create_time[idx],
-                                                                          last_modify_date_time=time_list[idx],
-                                                                          collection_name=collection_name)
+                                    error_info = self.supplement_error_info(error_info, creator_list[idx],
+                                                                            time_list[idx], collection_name)
                                     if 'score' in error_info:
                                         patient_list[idx]['pat_info']['machine_score'] += error_info['score']
                                     patient_list[idx]['pat_value'].append(error_info)
@@ -1539,8 +1535,8 @@ class CheckMultiRecords(object):
                                     num_list[idx] += 1
                                     self.all_result[id_list[idx]] = patient_list[idx]
             except:
-                self.logger_error.error(data)
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data)
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_present_tigejiancha(self, collection_name, **json_file):
@@ -1549,6 +1545,10 @@ class CheckMultiRecords(object):
         现病史含“偏瘫”字段，体格检查含“四肢活动自如” or 现病史含“昏迷”字段，体格检查含神志清/查体合作/语音震颤任一个 -->检出
         RYJLTGJC0002
         """
+        if len(self.regular_model.get('RYJLTGJC0002', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLTGJC0002'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLTGJC0002', json_file):
             mongo_result = [json_file]
         else:
@@ -1556,9 +1556,10 @@ class CheckMultiRecords(object):
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 batchno = collection_data.get('batchno', '')
                 admission_time = data['binganshouye'].get('pat_visit', dict()).get('admission_time', '')
                 if not collection_data.get(collection_name, dict()).get('diagnosis_name', ''):
@@ -1576,7 +1577,8 @@ class CheckMultiRecords(object):
                     present_word = '昏迷'
                     if not admission_time:
                         continue
-                    if (datetime.strptime(file_time_value[:10], '%Y-%m-%d') - datetime.strptime(admission_time[:10], '%Y-%m-%d')).days > 3:
+                    if (datetime.strptime(file_time[:10], '%Y-%m-%d') - datetime.strptime(admission_time[:10],
+                                                                                          '%Y-%m-%d')).days > 3:
                         continue
                     if '神志清' in physical_examination_src:
                         physical_examination_word = '神志清'
@@ -1588,22 +1590,18 @@ class CheckMultiRecords(object):
                         continue
                 if present_word:
                     if self.debug:
-                        self.logger.info('\n初步诊断与体格检查矛盾TGJC0002:\n\tid: {0}\n\t初步诊断: {1}\n\t体格检查: {2}\n\tbatchno: {3}\n'.
-                                         format(data['_id'],
-                                                '，'.join(diagnosis_name),
-                                                physical_examination_src,
-                                                batchno))
+                        logger.info('\n初步诊断与体格检查矛盾TGJC0002:\n\tid: {0}\n\t初步诊断: {1}\n\t体格检查: {2}\n\tbatchno: {3}\n'.
+                                    format(data['_id'],
+                                           '，'.join(diagnosis_name),
+                                           physical_examination_src,
+                                           batchno))
                     reason = '现病史含<{0}>，体格检查不应含<{1}>'.format(present_word, physical_examination_word)
                     error_info = {'code': 'RYJLTGJC0002',
                                   'num': num,
                                   'diagnosis_name': '，'.join(diagnosis_name),
                                   'physical_examination_src': physical_examination_src,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -1613,8 +1611,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_diagnosis_xinjie(self, collection_name, **json_file):
@@ -1623,6 +1621,10 @@ class CheckMultiRecords(object):
         初步诊断--疾病名称含“心界”字段，专科查体不含“心界”字段
         RYJLZKJC0002
         """
+        if len(self.regular_model.get('RYJLZKJC0002', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLZKJC0002'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLZKJC0002', json_file):
             mongo_result = [json_file]
         else:
@@ -1635,23 +1637,22 @@ class CheckMultiRecords(object):
                 diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
                 if '心界' not in diagnosis_name:
                     continue
-                if collection_data.get(collection_name, dict()).get('special_examination', dict()).get('heart_border', ''):
+                if collection_data.get(collection_name, dict()).get('special_examination', dict()).get('heart_border',
+                                                                                                       ''):
                     continue
-                if '心界' in collection_data.get(collection_name, dict()).get('special_examination', dict()).get('src', ''):
+                if '心界' in collection_data.get(collection_name, dict()).get('special_examination', dict()).get('src',
+                                                                                                               ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 reason = '初步诊断含<心界>，专科查体不含<心界>检查'
                 error_info = {'code': 'RYJLZKJC0002',
                               'num': num,
                               'diagnosis_name': '，'.join(diagnosis_name),
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -1661,8 +1662,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_diagnosis_fangchan(self, collection_name, **json_file):
@@ -1671,6 +1672,10 @@ class CheckMultiRecords(object):
         （初步诊断含“房颤”字段 and 体格检查--心率 < 脉搏） or （初步诊断不含“房颤”字段 and 心率 ≠ 脉搏） -->检出
         RYJLTGJC0003
         """
+        if len(self.regular_model.get('RYJLTGJC0003', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLTGJC0003'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLTGJC0003', json_file):
             mongo_result = [json_file]
         else:
@@ -1681,19 +1686,23 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if not collection_data.get(collection_name, dict()).get('diagnosis_name', ''):
                     continue
-                if not collection_data.get(collection_name, dict()).get('physical_examination', dict()).get('heart_rate', ''):
+                if not collection_data.get(collection_name, dict()).get('physical_examination', dict()).get(
+                        'heart_rate', ''):
                     continue
-                if not collection_data.get(collection_name, dict()).get('physical_examination', dict()).get('pulse', ''):
+                if not collection_data.get(collection_name, dict()).get('physical_examination', dict()).get('pulse',
+                                                                                                            ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 in_flag = False
                 for diag_name in collection_data[collection_name]['diagnosis_name']:
                     if '房颤' in diag_name.get('diagnosis_name', ''):
                         in_flag = True
                         break
-                heart_rate = int(re.search('\d+', collection_data[collection_name]['physical_examination']['heart_rate']).group())
+                heart_rate = int(
+                    re.search('\d+', collection_data[collection_name]['physical_examination']['heart_rate']).group())
                 pulse = int(re.search('\d+', collection_data[collection_name]['physical_examination']['pulse']).group())
                 if in_flag and (heart_rate < pulse):
                     reason = '初步诊断含<房颤>，体格检查<心率>小于<脉搏>'
@@ -1704,11 +1713,7 @@ class CheckMultiRecords(object):
                 error_info = {'code': 'RYJLTGJC0003',
                               'num': num,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -1718,8 +1723,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_zhuankejiancha_tanhuan(self, collection_name, **json_file):
@@ -1729,6 +1734,10 @@ class CheckMultiRecords(object):
         专科检查--骨科专科检查--所有运动系统检查左上肢/右上肢/左下肢/右下肢** （enum）值均==5 (29-68)-->检出
         RYJLZKJC0003
         """
+        if len(self.regular_model.get('RYJLZKJC0003', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLZKJC0003'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLZKJC0003', json_file):
             mongo_result = [json_file]
         else:
@@ -1738,9 +1747,10 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if not collection_data.get(collection_name, dict()).get('diagnosis_name', ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
                 target_name = ['瘫痪', 'FrankelA', 'FrankelB', 'FrankelC', 'ASIAA', 'ASIAB', 'ASIAC']
                 same_flag = self.gain_info._gain_same_content(target_name, diagnosis_name)
@@ -1748,7 +1758,8 @@ class CheckMultiRecords(object):
                 if not reason_name:
                     continue
                 else:
-                    exam_grade = collection_data.get(collection_name, dict()).get('special_examination', dict()).get('orthopedic_exam', dict())
+                    exam_grade = collection_data.get(collection_name, dict()).get('special_examination', dict()).get(
+                        'orthopedic_exam', dict())
                     target_grade = {
                         'l_levator_scapulae_strength': 'V',
                         'r_levator_scapulae_strength': 'V',
@@ -1802,11 +1813,7 @@ class CheckMultiRecords(object):
                 error_info = {'code': 'RYJLZKJC0003',
                               'num': num,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -1816,8 +1823,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_yuejingshi(self, collection_name, **json_file):
@@ -1827,10 +1834,16 @@ class CheckMultiRecords(object):
         入院记录-月经婚育史-初潮年龄、行经期天数、38行至71行绝经后异常症状全部==NULL -->检出
         RYJLHY0001
         """
+        if len(self.regular_model.get('RYJLHY0001', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RYJLHY0001'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RYJLHY0001', json_file):
             if json_file.get('binganshouye', dict()).get('pat_info', dict()).get('sex_name') != '女':
                 return self.all_result
-            if (int(json_file.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value', 0)) < 14) and json_file.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value_unit', '') == '岁':  # 年龄过滤
+            if (int(json_file.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value',
+                                                                                       0)) < 14) and json_file.get(
+                    'binganshouye', dict()).get('pat_visit', dict()).get('age_value_unit', '') == '岁':  # 年龄过滤
                 return self.all_result
             mongo_result = [json_file]
         else:
@@ -1844,17 +1857,21 @@ class CheckMultiRecords(object):
                     shouyeshoushu_result = shouyeshoushu_result_list[0]
                 if not shouyeshoushu_result:
                     continue
-                if (int(data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value', 0)) < 14) and data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value_unit', '') == '岁':
+                if (int(data.get('binganshouye', dict()).get('pat_visit', dict()).get('age_value',
+                                                                                      0)) < 14) and data.get(
+                        'binganshouye', dict()).get('pat_visit', dict()).get('age_value_unit', '') == '岁':
                     continue
                 if not shouyeshoushu_result.get('shouyeshoushu', dict()).get('operation_name'):
                     continue
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
-                dept = patient_result.get('pat_info', dict()).get('dept_discharge_from_name', '') or patient_result.get('pat_info', dict()).get('dept_admission_to_name', '')
+                dept = patient_result.get('pat_info', dict()).get('dept_discharge_from_name', '') or patient_result.get(
+                    'pat_info', dict()).get('dept_admission_to_name', '')
                 if not dept:
                     continue
                 if dept == '眼科' or dept == '儿科':
                     continue
-                menstrual_chapter = collection_data.get(collection_name, dict()).get('menstrual_and_obstetrical_histories', dict())
+                menstrual_chapter = collection_data.get(collection_name, dict()).get(
+                    'menstrual_and_obstetrical_histories', dict())
                 if not menstrual_chapter:
                     continue
                 exam_list = ['age_of_menarche', 'menstrual_days', 'menstrual_days_min', 'menstrual_days_max',
@@ -1862,15 +1879,17 @@ class CheckMultiRecords(object):
                              'last_menstrual_period', 'last_menstrual_period_describe', 'menstrual_blood_volume',
                              'menstrual_color', 'menstrual_blood_clots', 'recent_menstrual_volume',
                              'recent_menstrual_cycle', 'menstrual_abnormal_cause', 'menstrual_abnormal_description',
-                             'amenorrhea', 'amenorrhea_duration', 'dysmenorrhea', 'menopause_indicator', 'menopause_age',
+                             'amenorrhea', 'amenorrhea_duration', 'dysmenorrhea', 'menopause_indicator',
+                             'menopause_age',
                              'menopause_vaginal_abnormal', 'menopause_duration_describe', 'menopause_duration',
                              'menopause_symptom', 'obstetrics_and_gynecology_operation']
                 for item in exam_list:
                     if item in menstrual_chapter:
                         continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 src = self.gain_info._gain_src(cursor=collection_data,
                                                collection_name=collection_name,
                                                chapter_name='menstrual_and_obstetrical_histories')
@@ -1879,11 +1898,7 @@ class CheckMultiRecords(object):
                               'num': num,
                               'src': src,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -1893,8 +1908,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_hypokalemia(self, collection_name, **json_file):
@@ -1906,7 +1921,7 @@ class CheckMultiRecords(object):
         regular_code = ['RYJLFZJC0002', 'RYJLFZJC0004', 'RYJLFZJC0005', 'RYJLFZJC0006', 'RYJLFZJC0007', 'RYJLFZJC0008']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') == '启用':
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
                 regular_boolean.append(False)
             else:
                 regular_boolean.append(True)
@@ -1922,10 +1937,10 @@ class CheckMultiRecords(object):
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 if not collection_data.get(collection_name, dict()).get('auxiliary_examination', dict()).get('lab', ''):
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
-                file_time = data.get('binganshouye', dict()).get('pat_visit', dict()).get('admission_time', '')  # 获取入院时间
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = data.get('binganshouye', dict()).get('pat_visit', dict()).get('admission_time',
+                                                                                          '')  # 获取入院时间
                 if not file_time:
                     continue
                 get_item = self.conf_dict['lab_check_hypokalemia']
@@ -1978,10 +1993,12 @@ class CheckMultiRecords(object):
                                 flag['low_blood'] = True
 
                 push_flag = False
-                if flag['lower_k'] and self.filter_dept('RYJLFZJC0002', json_file):
+                if flag['lower_k'] and len(self.regular_model.get('RYJLFZJC0002', list())) > 6 and \
+                        self.regular_model['RYJLFZJC0002'][6] == '启用' and self.filter_dept('RYJLFZJC0002', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['低钾血症'], diagnosis_name)
                         if not same_flag:  # 没有低钾血症的话
                             reason = '初步诊断缺少检验中含有的低钾血症'
@@ -1996,20 +2013,18 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['high_k'] and self.filter_dept('RYJLFZJC0004', json_file):
+                if flag['high_k'] and len(self.regular_model.get('RYJLFZJC0004', list())) > 6 and \
+                        self.regular_model['RYJLFZJC0004'][6] == '启用' and self.filter_dept('RYJLFZJC0004', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['高钾血症'], diagnosis_name)
                         if not same_flag:
                             reason = '初步诊断缺少检验中含有的高钾血症'
@@ -2024,20 +2039,18 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['lower_na'] and self.filter_dept('RYJLFZJC0005', json_file):
+                if (flag['lower_na'] and len(self.regular_model.get('RYJLFZJC0005', list())) > 6 and
+                    self.regular_model['RYJLFZJC0005'][6] == '启用') and self.filter_dept('RYJLFZJC0005', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['低钠血症'], diagnosis_name)
                         if not same_flag:
                             reason = '初步诊断缺少检验中含有的低钠血症'
@@ -2052,20 +2065,18 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['high_na'] and self.filter_dept('RYJLFZJC0006', json_file):
+                if flag['high_na'] and len(self.regular_model.get('RYJLFZJC0006', list())) > 6 and \
+                        self.regular_model['RYJLFZJC0006'][6] == '启用' and self.filter_dept('RYJLFZJC0006', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['高钠血症'], diagnosis_name)
                         if not same_flag:
                             reason = '初步诊断缺少检验中含有的高钠血症'
@@ -2080,20 +2091,18 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['low_blood'] and self.filter_dept('RYJLFZJC0007', json_file):
+                if flag['low_blood'] and len(self.regular_model.get('RYJLFZJC0007', list())) > 6 and \
+                        self.regular_model['RYJLFZJC0007'][6] == '启用' and self.filter_dept('RYJLFZJC0007', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['贫血'], diagnosis_name)
                         if not same_flag:
                             reason = '初步诊断缺少检验中含有的贫血'
@@ -2108,20 +2117,18 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['low_albumin'] and self.filter_dept('RYJLFZJC0008', json_file):
+                if flag['low_albumin'] and len(self.regular_model.get('RYJLFZJC0008', list())) > 6 and \
+                        self.regular_model['RYJLFZJC0008'][6] == '启用' and self.filter_dept('RYJLFZJC0008', json_file):
                     error_info = dict()
                     if 'diagnosis_name' in collection_data[collection_name]:
-                        diagnosis_name = self.gain_info._gain_diagnosis_name(collection_data[collection_name]['diagnosis_name'])
+                        diagnosis_name = self.gain_info._gain_diagnosis_name(
+                            collection_data[collection_name]['diagnosis_name'])
                         same_flag = self.gain_info._gain_same_content(['低蛋白血症'], diagnosis_name)
                         if not same_flag:
                             reason = '初步诊断缺少检验中含有的低蛋白血症'
@@ -2136,11 +2143,7 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -2153,8 +2156,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shoushujilu_chafang(self, collection_name, **json_file):
@@ -2163,6 +2166,10 @@ class CheckMultiRecords(object):
         手术记录--主刀医师、手术时间 and 手术时间前住院上级医师查房录src--TOPIC 不含有 该主刀医师名称 -->检出
         RCBC0017
         """
+        if len(self.regular_model.get('RCBC0017', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0017'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0017', json_file):
             mongo_result = [json_file]
         else:
@@ -2176,30 +2183,22 @@ class CheckMultiRecords(object):
                     continue
                 if collection_name not in collection_data:
                     continue
-                creator_name = ''
-                last_modify_date_time = ''
-                file_time_value = ''
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 operation_time = ''
                 surgeon = list()
-                shoushujilu_model = collection_data.get(collection_name, list())
-                for one_record in shoushujilu_model:
+                for one_record in collection_data[collection_name]:
                     if 'operation_time' in one_record:
-                        creator_name = one_record.get('creator_name', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
-                        file_time_value = one_record.get('file_time_value', '')
-
-                        # 获取所有手术中，手术时间较早的那一个
                         if not operation_time:
                             operation_time = one_record['operation_time']
                         else:
-                            operation_time = one_record['operation_time'] if operation_time > one_record['operation_time'] else operation_time
-
-                        # 获取手术时间较早的那次的 surgeon
+                            operation_time = one_record['operation_time'] if operation_time > one_record[
+                                'operation_time'] else operation_time
                         if operation_time == one_record['operation_time']:
-                            if one_record.get('surgeon', '') == '术':
-                                continue
                             surgeon = one_record.get('surgeon', '').split('、')
-                if not (operation_time and surgeon):
+                if (not operation_time) or (not surgeon):
                     continue
                 if not all(surgeon):
                     continue
@@ -2211,11 +2210,9 @@ class CheckMultiRecords(object):
                 if bingcheng:
                     in_flag = False
                     for one_record in bingcheng.get('shangjiyishishoucibingchengjilu', list()):
-                        caption_date_time = one_record.get('caption_date_time', '')[:10]
-                        if not caption_date_time:
+                        if 'caption_date_time' not in one_record:
                             continue
-                        # 手术那天之后查房，跳过，手术当天不跳过
-                        if caption_date_time > operation_time:
+                        if one_record['topic'] > operation_time:
                             continue
                         if 'topic' not in one_record:
                             continue
@@ -2248,11 +2245,9 @@ class CheckMultiRecords(object):
                             continue
                         in_flag = False
                         for one_record in chafang_src['shangjiyishichafanglu']:
-                            caption_date_time = one_record.get('caption_date_time', '')[:10]
-                            if not caption_date_time:
+                            if 'caption_date_time' not in one_record:
                                 continue
-                            # 手术那天之后查房，跳过，手术当天不跳过
-                            if caption_date_time > operation_time:
+                            if one_record['caption_date_time'] > operation_time:
                                 continue
                             if 'topic' not in one_record:
                                 continue
@@ -2270,11 +2265,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0017',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                            'shangjiyishichafanglu')
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2286,8 +2278,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append('shangjiyishichafanglu')
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_yizhu_shuxue(self, collection_name, **json_file):
@@ -2295,7 +2287,14 @@ class CheckMultiRecords(object):
         collection = yizhu
         RCBC0018, RCBC0019
         """
-        if self.regular_model.get('RCBC0018', dict()).get('status') != '启用' and self.regular_model.get('RCBC0019', dict()).get('status') != '启用':
+        regular_code = ['RCBC0018', 'RCBC0019']
+        regular_boolean = list()
+        for i in regular_code:
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
+                regular_boolean.append(False)
+            else:
+                regular_boolean.append(True)
+        if all(regular_boolean):
             return self.all_result
         if json_file:
             mongo_result = [json_file]
@@ -2319,7 +2318,8 @@ class CheckMultiRecords(object):
                             if not order_time:
                                 order_time = one_record['order_time']
                             else:
-                                order_time = one_record['order_time'] if order_time > one_record['operation_time'] else order_time
+                                order_time = one_record['order_time'] if order_time > one_record[
+                                    'operation_time'] else order_time
                 if not order_time:
                     continue
                 chafang_src_list = data.get('shangjiyishichafanglu_src', list())
@@ -2332,8 +2332,11 @@ class CheckMultiRecords(object):
                 #                                                  {'shangjiyishichafanglu.TOPIC': 1,
                 #                                                   'shangjiyishichafanglu.CAPTION_DATE_TIME': 1,
                 #                                                   'shangjiyishichafanglu.CREATOR_NAME': 1})
-                if chafang_src and len(self.regular_model.get('RCBC0018', list())) > 6 and self.regular_model['RCBC0018'][6] == '启用' and self.filter_dept('RCBC0018', json_file):
+                if chafang_src and len(self.regular_model.get('RCBC0018', list())) > 6 and \
+                        self.regular_model['RCBC0018'][6] == '启用' and self.filter_dept('RCBC0018', json_file):
                     flag = False
+                    file_time = '无文书时间'
+                    creator_name = ''
                     error_file = list()
                     for one_record in chafang_src.get('shangjiyishichafanglu', list()):
                         if 'caption_date_time' not in one_record:
@@ -2342,8 +2345,7 @@ class CheckMultiRecords(object):
                             continue
                         if 'topic' not in one_record:
                             continue
-                        error_file.append({'file_time_value': one_record['caption_date_time'],
-                                           'last_modify_date_time': one_record['last_modify_date_time'],
+                        error_file.append({'last_modify_date_time': one_record['caption_date_time'],
                                            'creator_name': one_record.get('creator_name', '')})
                         if one_record['topic'] == '输血病程' or one_record['topic'] == '输血记录':
                             flag = True
@@ -2354,8 +2356,8 @@ class CheckMultiRecords(object):
                                       'error_file': error_file,
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              collection_name='shangjiyishichafanglu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                'shangjiyishichafanglu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -2376,8 +2378,11 @@ class CheckMultiRecords(object):
                 #                                                             {'richangbingchengjilu.TOPIC': 1,
                 #                                                              'richangbingchengjilu.CAPTION_DATE_TIME': 1,
                 #                                                              'richangbingchengjilu.LAST_MODIFY_DATE_TIME': 1})
-                if richangbingcheng_src and len(self.regular_model.get('RCBC0019', list())) > 6 and self.regular_model['RCBC0019'][6] == '启用' and self.filter_dept('RCBC0019', json_file):
+                if richangbingcheng_src and len(self.regular_model.get('RCBC0019', list())) > 6 and \
+                        self.regular_model['RCBC0019'][6] == '启用' and self.filter_dept('RCBC0019', json_file):
                     flag = False
+                    file_time = '无文书时间'
+                    creator_name = ''
                     error_file = list()
                     for one_record in richangbingcheng_src.get('richangbingchengjilu', list()):
                         if 'caption_date_time' not in one_record:
@@ -2387,7 +2392,6 @@ class CheckMultiRecords(object):
                         if 'topic' not in one_record:
                             continue
                         error_file.append({'last_modify_date_time': one_record['last_modify_date_time'],
-                                           'file_time_value': one_record['caption_date_time'],
                                            'creator_name': one_record.get('creator_name', '')})
                         if one_record['topic'] == '输血病程' or one_record['topic'] == '输血记录':
                             flag = True
@@ -2398,8 +2402,8 @@ class CheckMultiRecords(object):
                                       'error_file': error_file,
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              collection_name='richangbingchengjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                'richangbingchengjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -2410,8 +2414,8 @@ class CheckMultiRecords(object):
                         self.all_result[mq_id] = patient_result
                         num += 1
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_repeat_shangjichafang(self, collection_name, **json_file):
@@ -2420,6 +2424,10 @@ class CheckMultiRecords(object):
         本次就诊次上级医师查房记录连续两天内容相同（src相同）
         RCBC0005
         """
+        if len(self.regular_model.get('RCBC0005', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0005'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0005', json_file):
             mongo_result = [json_file]
         else:
@@ -2436,37 +2444,33 @@ class CheckMultiRecords(object):
                 flag = False
                 creator_name = ''
                 last_modify_date_time = ''
-                file_time_value = ''
                 for index in range(1, len(chafang_record)):
-                    last_data = chafang_record[index-1]
-                    if last_data.get('src', '').strip() and 'file_time_value' in last_data:
+                    last_data = chafang_record[index - 1]
+                    if 'src' in last_data and 'file_time_value' in last_data:
                         last_src = last_data['src']
                         last_time = last_data['file_time_value']
                     else:
                         continue
                     this_data = chafang_record[index]
-                    if this_data.get('src', '').strip() and 'file_time_value' in this_data:
+                    if 'src' in this_data and 'file_time_value' in this_data:
                         this_src = this_data['src']
                         this_time = this_data['file_time_value']
                     else:
                         continue
-                    if (datetime.strptime(this_time[:10], '%Y-%m-%d')-datetime.strptime(last_time[:10], '%Y-%m-%d')).days == 1:
+                    if (datetime.strptime(this_time[:10], '%Y-%m-%d') - datetime.strptime(last_time[:10],
+                                                                                          '%Y-%m-%d')).days == 1:
                         if re.sub("[，。,、]+", "", last_src) == re.sub("[，。,、]+", "", this_src):
                             flag = True
                             creator_name = this_data.get('creator_name', '')
-                            last_modify_date_time = this_data.get('last_modify_date_time', '')
-                            file_time_value = this_data.get('file_time_value', '')
+                            last_modify_date_time = this_data.get('last_modify_date_time', '无文书时间')
                             break
                 if flag:
                     reason = '上级医师查房记录连续两天内容相同'
                     error_info = {'code': 'RCBC0005',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2476,8 +2480,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_repeat_richangbingcheng(self, collection_name, **json_file):
@@ -2486,6 +2490,10 @@ class CheckMultiRecords(object):
         本次就诊次日常病程记录连续两天内容相同（src相同） -->检出
         RCBC0006
         """
+        if len(self.regular_model.get('RCBC0006', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0006'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0006', json_file):
             mongo_result = [json_file]
         else:
@@ -2497,42 +2505,37 @@ class CheckMultiRecords(object):
                     continue
                 if collection_name not in collection_data:
                     continue
-                chafang_record = collection_data.get(collection_name, list())
+                chafang_record = collection_data[collection_name]
                 chafang_record.sort(key=lambda l: l['file_time_value'])
                 flag = False
                 creator_name = ''
-                last_modify_date_time = ''
-                file_time_value = ''
+                file_time = ''
                 for index in range(1, len(chafang_record)):
-                    last_data = chafang_record[index-1]
-                    if last_data.get('src', '').strip() and 'file_time_value' in last_data:
+                    last_data = chafang_record[index - 1]
+                    if 'src' in last_data and 'file_time_value' in last_data:
                         last_src = last_data['src']
                         last_time = last_data['file_time_value']
                     else:
                         continue
                     this_data = chafang_record[index]
-                    if this_data.get('src', '').strip() and 'file_time_value' in this_data:
+                    if 'src' in this_data and 'file_time_value' in this_data:
                         this_src = this_data['src']
                         this_time = this_data['file_time_value']
                     else:
                         continue
-                    if (datetime.strptime(this_time[:10], '%Y-%m-%d')-datetime.strptime(last_time[:10], '%Y-%m-%d')).days == 1:
+                    if (datetime.strptime(this_time[:10], '%Y-%m-%d') - datetime.strptime(last_time[:10],
+                                                                                          '%Y-%m-%d')).days == 1:
                         if re.sub("[，。,、]+", "", last_src) == re.sub("[，。,、]+", "", this_src):
                             flag = True
                             creator_name = this_data.get('creator_name', '')
-                            last_modify_date_time = this_data.get('last_modify_date_time', '')
-                            file_time_value = this_data.get('file_time_value', '')
+                            file_time = this_data.get('last_modify_date_time', '无文书时间')
                             break
                 if flag:
                     reason = '日常病程记录连续两天内容相同'
                     error_info = {'code': 'RCBC0006',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2542,8 +2545,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_repeat_shuhoubingcheng(self, collection_name, **json_file):
@@ -2552,6 +2555,10 @@ class CheckMultiRecords(object):
         本次就诊次术后病程记录连续两天内容相同（src相同） -->检出
         SHBC0002
         """
+        if len(self.regular_model.get('SHBC0002', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0002'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHBC0002', json_file):
             mongo_result = [json_file]
         else:
@@ -2567,38 +2574,33 @@ class CheckMultiRecords(object):
                 chafang_record.sort(key=lambda l: l['file_time_value'])
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 for index in range(1, len(chafang_record)):
-                    last_data = chafang_record[index-1]
-                    if last_data.get('src', '').strip() and 'file_time_value' in last_data:
+                    last_data = chafang_record[index - 1]
+                    if 'src' in last_data and 'file_time_value' in last_data:
                         last_src = last_data['src']
                         last_time = last_data['file_time_value']
                     else:
                         continue
                     this_data = chafang_record[index]
-                    if this_data.get('src', '').strip() and 'file_time_value' in this_data:
+                    if 'src' in this_data and 'file_time_value' in this_data:
                         this_src = this_data['src']
                         this_time = this_data['file_time_value']
                     else:
                         continue
-                    if (datetime.strptime(this_time[:10], '%Y-%m-%d')-datetime.strptime(last_time[:10], '%Y-%m-%d')).days == 1:
+                    if (datetime.strptime(this_time[:10], '%Y-%m-%d') - datetime.strptime(last_time[:10],
+                                                                                          '%Y-%m-%d')).days == 1:
                         if re.sub("[，。,、]+", "", last_src) == re.sub("[，。,、]+", "", this_src):
                             flag = True
                             creator_name = this_data.get('creator_name', '')
-                            file_time_value = this_data.get('file_time_value', '')
-                            last_modify_date_time = this_data.get('last_modify_date_time', '')
+                            file_time = this_data.get('last_modify_date_time', '无文书时间')
                             break
                 if flag:
                     reason = '术后病程记录连续两天内容相同'
                     error_info = {'code': 'SHBC0002',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2608,8 +2610,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chatirepeat_shangjichafang(self, collection_name, **json_file):
@@ -2619,6 +2621,10 @@ class CheckMultiRecords(object):
         所有上级医师查房记录--当前病情记录--查体--（心率、血压）连续两次查房记录相同 -->检出
         RCBC0014
         """
+        if len(self.regular_model.get('RCBC0014', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0014'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0014', json_file):
             mongo_result = [json_file]
         else:
@@ -2648,34 +2654,38 @@ class CheckMultiRecords(object):
                 if shoucibingcheng:
                     one_record = shoucibingcheng.get('shangjiyishishoucibingchengjilu', dict())
                     if 'file_time_value' in one_record:
-                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('heart_rate', '')
-                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('blood_pressure', '')
+                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'heart_rate', '')
+                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'blood_pressure', '')
                         creator_name = one_record.get('creator_name', '')
                         last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                         if heart_rate or blood_pressure:
-                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name, last_modify_date_time))
+                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name,
+                                               last_modify_date_time))
                 for one_record in collection_data[collection_name]:
                     if 'file_time_value' in one_record:
-                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('heart_rate', '')
-                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('blood_pressure', '')
+                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'heart_rate', '')
+                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'blood_pressure', '')
                         creator_name = one_record.get('creator_name', '')
                         last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                         if heart_rate or blood_pressure:
-                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name, last_modify_date_time))
+                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name,
+                                               last_modify_date_time))
                 if not chati_list:
                     continue
                 chati_list.sort(key=lambda l: l[2])
                 repeat_item = list()
                 last_modify_date_time = ''
                 creator_name = ''
-                file_time_value = ''
                 for index in range(1, len(chati_list)):
-                    if chati_list[index][0] == chati_list[index-1][0] and chati_list[index][0] != '':
+                    if chati_list[index][0] == chati_list[index - 1][0] and chati_list[index][0] != '':
                         repeat_item.append('心率')
-                    if chati_list[index][1] == chati_list[index-1][1] and chati_list[index][1] != '':
+                    if chati_list[index][1] == chati_list[index - 1][1] and chati_list[index][1] != '':
                         repeat_item.append('血压')
                     if repeat_item:
-                        file_time_value = chati_list[index][2]
                         creator_name = chati_list[index][3]
                         last_modify_date_time = chati_list[index][4]
                         break
@@ -2684,11 +2694,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0014',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2698,8 +2705,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chatirepeat_richangbingcheng(self, collection_name, **json_file):
@@ -2708,6 +2715,10 @@ class CheckMultiRecords(object):
         所有日常病程记录--当前病情记录--查体--（心率、血压）连续两次病程记录相同 -->检出
         RCBC0015
         """
+        if len(self.regular_model.get('RCBC0015', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0015'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0015', json_file):
             mongo_result = [json_file]
         else:
@@ -2722,26 +2733,27 @@ class CheckMultiRecords(object):
                 chati_list = list()
                 for one_record in collection_data[collection_name]:
                     if 'file_time_value' in one_record:
-                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('heart_rate', '')
-                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('blood_pressure', '')
+                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'heart_rate', '')
+                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'blood_pressure', '')
                         creator_name = one_record.get('creator_name', '')
                         last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                         if heart_rate or blood_pressure:
-                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name, last_modify_date_time))
+                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name,
+                                               last_modify_date_time))
                 if not chati_list:
                     continue
                 chati_list.sort(key=lambda l: l[2])
                 repeat_item = list()
                 last_modify_date_time = ''
                 creator_name = ''
-                file_time_value = ''
                 for index in range(1, len(chati_list)):
-                    if chati_list[index][0] == chati_list[index-1][0] and chati_list[index][0] != '':
+                    if chati_list[index][0] == chati_list[index - 1][0] and chati_list[index][0] != '':
                         repeat_item.append('心率')
-                    if chati_list[index][1] == chati_list[index-1][1] and chati_list[index][1] != '':
+                    if chati_list[index][1] == chati_list[index - 1][1] and chati_list[index][1] != '':
                         repeat_item.append('血压')
                     if repeat_item:
-                        file_time_value = chati_list[index][2]
                         creator_name = chati_list[index][3]
                         last_modify_date_time = chati_list[index][4]
                         break
@@ -2750,11 +2762,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0015',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2764,8 +2773,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chatirepeat_shuhoubingcheng(self, collection_name, **json_file):
@@ -2774,6 +2783,10 @@ class CheckMultiRecords(object):
         所有术后病程记录--当前病情记录--查体--（心率、血压）连续两次术后病程记录相同 -->检出
         SHBC0007
         """
+        if len(self.regular_model.get('SHBC0007', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0007'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHCB0007', json_file):
             mongo_result = [json_file]
         else:
@@ -2788,26 +2801,27 @@ class CheckMultiRecords(object):
                 chati_list = list()
                 for one_record in collection_data[collection_name]:
                     if 'file_time_value' in one_record:
-                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('heart_rate', '')
-                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get('blood_pressure', '')
+                        heart_rate = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'heart_rate', '')
+                        blood_pressure = one_record.get('problem_list', dict()).get('physical_examination', dict()).get(
+                            'blood_pressure', '')
                         creator_name = one_record.get('creator_name', '')
                         last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                         if heart_rate or blood_pressure:
-                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name, last_modify_date_time))
+                            chati_list.append((heart_rate, blood_pressure, one_record['file_time_value'], creator_name,
+                                               last_modify_date_time))
                 if not chati_list:
                     continue
                 chati_list.sort(key=lambda l: l[2])
                 repeat_item = list()
                 last_modify_date_time = ''
                 creator_name = ''
-                file_time_value = ''
                 for index in range(1, len(chati_list)):
-                    if chati_list[index][0] == chati_list[index-1][0] and chati_list[index][0] != '':
+                    if chati_list[index][0] == chati_list[index - 1][0] and chati_list[index][0] != '':
                         repeat_item.append('心率')
-                    if chati_list[index][1] == chati_list[index-1][1] and chati_list[index][1] != '':
+                    if chati_list[index][1] == chati_list[index - 1][1] and chati_list[index][1] != '':
                         repeat_item.append('血压')
                     if repeat_item:
-                        file_time_value = chati_list[index][2]
                         creator_name = chati_list[index][3]
                         last_modify_date_time = chati_list[index][4]
                         break
@@ -2816,11 +2830,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SHBC0007',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2830,8 +2841,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_exist_shangjichafang(self, collection_name, **json_file):
@@ -2840,6 +2851,10 @@ class CheckMultiRecords(object):
         上级医师查房记录--src==NULL
         RCBC0008
         """
+        if len(self.regular_model.get('RCBC0008', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0008'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0008', json_file):
             mongo_result = [json_file]
         else:
@@ -2853,31 +2868,24 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                last_modify_date_time = ''
-                file_time_value = ''
+                file_time = ''
                 for one_record in collection_data[collection_name]:
                     if 'src' not in one_record:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                     elif len(one_record['src']) <= 3:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                 if flag:
                     reason = '上级医师查房记录为空'
                     error_info = {'code': 'RCBC0008',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2887,8 +2895,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_exist_richangbingcheng(self, collection_name, **json_file):
@@ -2897,6 +2905,10 @@ class CheckMultiRecords(object):
         日常病程记录--src==NULL -->检出
         RCBC0007
         """
+        if len(self.regular_model.get('RCBC0007', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0007'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0007', json_file):
             mongo_result = [json_file]
         else:
@@ -2910,31 +2922,24 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 for one_record in collection_data[collection_name]:
                     if 'src' not in one_record:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                     elif len(one_record['src']) <= 3:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                 if flag:
                     reason = '日常病程记录为空'
                     error_info = {'code': 'RCBC0007',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2944,8 +2949,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_exist_shangjishoucibingcheng(self, collection_name, **json_file):
@@ -2954,6 +2959,10 @@ class CheckMultiRecords(object):
         上级医师首次病程记录--src==NULL -->检出
         RCBC0009
         """
+        if len(self.regular_model.get('RCBC0009', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0009'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0009', json_file):
             mongo_result = [json_file]
         else:
@@ -2967,24 +2976,18 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 one_record = collection_data[collection_name]
                 if len(one_record.get('src', '')) <= 3:
                     flag = True
                     creator_name = one_record.get('creator_name', '')
-                    file_time_value = one_record.get('file_time_value', '')
-                    last_modify_date_time = one_record.get('last_modify_date_time', '')
+                    file_time = one_record.get('last_modify_date_time', '无文书时间')
                 if flag:
                     reason = '上级医师首次病程记录为空'
                     error_info = {'code': 'RCBC0009',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -2994,16 +2997,20 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
-    
+
     def check_exist_shuhoushoucichafang(self, collection_name, **json_file):
         """
         collection = shuhoushoucishangjiyishichangfangjilu
         术后首次上级医师查房记录--src==NULL -->检出
         RCBC0010
         """
+        if len(self.regular_model.get('RCBC0010', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0010'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0010', json_file):
             mongo_result = [json_file]
         else:
@@ -3017,31 +3024,24 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 for one_record in collection_data[collection_name]:
                     if 'src' not in one_record:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                     elif len(one_record['src']) <= 3:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                 if flag:
                     reason = '术后首次上级医师查房记录为空'
                     error_info = {'code': 'RCBC0010',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3051,8 +3051,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_exist_shuhoubingcheng(self, collection_name, **json_file):
@@ -3061,6 +3061,10 @@ class CheckMultiRecords(object):
         术后病程记录--src==NULL -->检出
         SHBC0004
         """
+        if len(self.regular_model.get('SHBC0004', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0004'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHBC0004', json_file):
             mongo_result = [json_file]
         else:
@@ -3074,31 +3078,24 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 for one_record in collection_data[collection_name]:
                     if 'src' not in one_record:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                     elif len(one_record['src']) <= 3:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                 if flag:
                     reason = '术后病程记录为空'
                     error_info = {'code': 'SHBC0004',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3108,8 +3105,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_exist_shuhoushoucibingcheng(self, collection_name, **json_file):
@@ -3118,6 +3115,10 @@ class CheckMultiRecords(object):
         术后首次病程记录--src==NULL -->检出
         SHBC0005
         """
+        if len(self.regular_model.get('SHBC0005', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0005'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHBC0005', json_file):
             mongo_result = [json_file]
         else:
@@ -3131,31 +3132,24 @@ class CheckMultiRecords(object):
                     continue
                 flag = False
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 for one_record in collection_data[collection_name]:
                     if 'src' not in one_record:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                     elif len(one_record['src']) <= 3:
                         flag = True
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                         break
                 if flag:
                     reason = '术后首次病程记录为空'
                     error_info = {'code': 'SHBC0005',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3164,60 +3158,57 @@ class CheckMultiRecords(object):
                     if collection_name not in patient_result['pat_info']['html']:
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
-                # else:
-                #     shoushujilu_list = data.get('shoushujilu', list())
-                #     shoushu_result = dict()
-                #     if shoushujilu_list:
-                #         shoushu_result = shoushujilu_list[0]
-                #     if not shoushu_result:
-                #         continue
-                #     if not shoushu_result.get('shoushujilu', list()):
-                #         continue
-                #     operation_time = shoushu_result.get('shoushujilu', list())[0].get('operation_time')
-                #     if not operation_time:
-                #         continue
-                #     operation_date = operation_time[:10] if len(operation_time) > 10 else ''
-                #     if not operation_date:
-                #         continue
-                #     shuhoubingchengjilu_list = data.get('shuhoubingchengjilu', list())
-                #     shuhou_result = dict()
-                #     if shuhoubingchengjilu_list:
-                #         shuhou_result = shuhoubingchengjilu_list[0]
-                #     if not shuhou_result:
-                #         flag = True
-                #     else:
-                #         for one_record in shuhou_result.get('shuhoubingchengjilu', list()):
-                #             if 'file_time_value' in one_record:
-                #                 if len(one_record['file_time_value']) > 10:
-                #                     if one_record['file_time_value'][:10] == operation_date or datetime.strptime(operation_date, '%Y-%m-%d') + timedelta(1) == datetime.strptime(one_record['file_time_value'][:10], '%Y-%m-%d'):
-                #                         if not one_record.get('src'):
-                #                             flag = True
-                #                             creator_name = one_record.get('creator_name', '')
-                #                             file_time_value = one_record.get('file_time_value', '')
-                #                             last_modify_date_time = one_record.get('last_modify_date_time', '')
-                #                         else:
-                #                             flag = False
-                #     if flag:
-                #         reason = '手术日期后术后病程记录为空'
-                #         error_info = {'code': 'SHBC0005',
-                #                       'num': num,
-                #                       'reason': reason}
-                #         error_info = self.supplementErrorInfo(error_info=error_info,
-                #                                               creator_name=creator_name,
-                #                                               file_time_value=file_time_value,
-                #                                               last_modify_date_time=last_modify_date_time,
-                #                                               collection_name=collection_name)
-                #         if 'score' in error_info:
-                #             patient_result['pat_info']['machine_score'] += error_info['score']
-                #         patient_result['pat_value'].append(error_info)
-                #         mq_id = data['_id']
-                #         patient_result['pat_info'].setdefault('html', list())
-                #         if collection_name not in patient_result['pat_info']['html']:
-                #             patient_result['pat_info']['html'].append(collection_name)
-                #         self.all_result[mq_id] = patient_result
+                else:
+                    shoushujilu_list = data.get('shoushujilu', list())
+                    shoushu_result = dict()
+                    if shoushujilu_list:
+                        shoushu_result = shoushujilu_list[0]
+                    if not shoushu_result:
+                        continue
+                    if not shoushu_result.get('shoushujilu', list()):
+                        continue
+                    operation_time = shoushu_result.get('shoushujilu', list())[0].get('operation_time')
+                    if not operation_time:
+                        continue
+                    operation_date = operation_time[:10] if len(operation_time) > 10 else ''
+                    if not operation_date:
+                        continue
+                    shuhoubingchengjilu_list = data.get('shuhoubingchengjilu', list())
+                    shuhou_result = dict()
+                    if shuhoubingchengjilu_list:
+                        shuhou_result = shuhoubingchengjilu_list[0]
+                    if not shuhou_result:
+                        flag = True
+                    else:
+                        for one_record in shuhou_result.get('shuhoubingchengjilu', list()):
+                            if 'file_time_value' in one_record:
+                                if len(one_record['file_time_value']) > 10:
+                                    if one_record['file_time_value'][:10] == operation_date or datetime.strptime(
+                                            operation_date, '%Y-%m-%d') + timedelta(1) == datetime.strptime(
+                                            one_record['file_time_value'][:10], '%Y-%m-%d'):
+                                        if not one_record.get('src'):
+                                            flag = True
+                                            creator_name = one_record.get('creator_name', '')
+                                            file_time = one_record.get('last_modify_date_time', '无文书时间')
+                                        else:
+                                            flag = False
+                    if flag:
+                        reason = '手术日期后术后病程记录为空'
+                        error_info = {'code': 'SHBC0005',
+                                      'num': num,
+                                      'reason': reason}
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
+                        if 'score' in error_info:
+                            patient_result['pat_info']['machine_score'] += error_info['score']
+                        patient_result['pat_value'].append(error_info)
+                        mq_id = data['_id']
+                        patient_result['pat_info'].setdefault('html', list())
+                        if collection_name not in patient_result['pat_info']['html']:
+                            patient_result['pat_info']['html'].append(collection_name)
+                        self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chati_shangjichafang(self, collection_name, **json_file):
@@ -3226,6 +3217,10 @@ class CheckMultiRecords(object):
         上级医师查房记录--当前病情记录--查体--（体温、脉搏、心率、血压）任一为0 -->检出
         RCBC0012
         """
+        if len(self.regular_model.get('RCBC0012', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0012'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0012', json_file):
             mongo_result = [json_file]
         else:
@@ -3238,8 +3233,7 @@ class CheckMultiRecords(object):
                 if collection_name not in collection_data:
                     continue
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 items = set()
                 for one_record in collection_data[collection_name]:
                     if 'problem_list' not in one_record:
@@ -3258,18 +3252,13 @@ class CheckMultiRecords(object):
                         items.add('血压')
                     if items:
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                 if items:
                     reason = '上级医师查房记录中<{0}>为0'.format('/'.join(items))
                     error_info = {'code': 'RCBC0012',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3279,8 +3268,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chati_shuhoushoucichafang(self, collection_name, **json_file):
@@ -3289,6 +3278,10 @@ class CheckMultiRecords(object):
         术后首次上级医师查房记录--当前病情记录--查体--（体温、脉搏、心率、血压）任一为0 -->检出
         RCBC0013
         """
+        if len(self.regular_model.get('RCBC0013', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0013'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0013', json_file):
             mongo_result = [json_file]
         else:
@@ -3301,8 +3294,7 @@ class CheckMultiRecords(object):
                 if collection_name not in collection_data:
                     continue
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 items = set()
                 for one_record in collection_data[collection_name]:
                     if 'problem_list' not in one_record:
@@ -3321,18 +3313,13 @@ class CheckMultiRecords(object):
                         items.add('血压')
                     if items:
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                 if items:
                     reason = '术后首次上级医师查房记录中<{0}>为0'.format('/'.join(items))
                     error_info = {'code': 'RCBC0013',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3342,8 +3329,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chati_richangbingcheng(self, collection_name, **json_file):
@@ -3352,6 +3339,10 @@ class CheckMultiRecords(object):
         日常病程记录--当前病情记录--查体--（体温、脉搏、心率、血压）任一为0 -->检出
         RCBC0011
         """
+        if len(self.regular_model.get('RCBC0011', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0011'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0011', json_file):
             mongo_result = [json_file]
         else:
@@ -3364,12 +3355,9 @@ class CheckMultiRecords(object):
                 if collection_name not in collection_data:
                     continue
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 items = set()
                 for one_record in collection_data[collection_name]:
-                    if '死亡' in one_record.get('src', ''):
-                        continue
                     if 'problem_list' not in one_record:
                         continue
                     if 'physical_examination' not in one_record['problem_list']:
@@ -3386,18 +3374,13 @@ class CheckMultiRecords(object):
                         items.add('血压')
                     if items:
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                 if items:
                     reason = '日常病程记录中<{0}>为0'.format('/'.join(items))
                     error_info = {'code': 'RCBC0011',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3407,8 +3390,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chati_shuhoubingcheng(self, collection_name, **json_file):
@@ -3417,6 +3400,10 @@ class CheckMultiRecords(object):
         术后病程记录--当前病情记录--查体--（体温、脉搏、心率、血压）任一为0 -->检出
         SHBC0006
         """
+        if len(self.regular_model.get('SHBC0006', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0006'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHBC0006', json_file):
             mongo_result = [json_file]
         else:
@@ -3429,8 +3416,7 @@ class CheckMultiRecords(object):
                 if collection_name not in collection_data:
                     continue
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
+                file_time = ''
                 items = set()
                 for one_record in collection_data[collection_name]:
                     if 'problem_list' not in one_record:
@@ -3449,18 +3435,13 @@ class CheckMultiRecords(object):
                         items.add('血压')
                     if items:
                         creator_name = one_record.get('creator_name', '')
-                        file_time_value = one_record.get('file_time_value', '')
-                        last_modify_date_time = one_record.get('last_modify_date_time', '')
+                        file_time = one_record.get('last_modify_date_time', '无文书时间')
                 if items:
                     reason = '术后病程记录中<{0}>为0'.format('/'.join(items))
                     error_info = {'code': 'SHBC0006',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3470,8 +3451,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shoushu_shuhoubingcheng(self, collection_name, **json_file):
@@ -3481,6 +3462,10 @@ class CheckMultiRecords(object):
         external = shuhoubingchengjilu
         SHBC0008
         """
+        if len(self.regular_model.get('SHBC0008', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SHBC0008'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SHBC0008', json_file):
             mongo_result = [json_file]
         else:
@@ -3500,11 +3485,10 @@ class CheckMultiRecords(object):
                 if not discharge_time:
                     continue
                 creator_name = one_record.get('creator_name', '')
-                last_modify_date_time = one_record.get('last_modify_date_time', '')
-                file_time_value = one_record.get('file_time_value', '')
+                last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                 operation_date = datetime.strptime(operation_time[:10], '%Y-%m-%d')
                 discharge_date = datetime.strptime(discharge_time[:10], '%Y-%m-%d')
-                if (discharge_date-operation_date).days >= 2:
+                if (discharge_date - operation_date).days >= 2:
                     day_flag = 2
                 else:
                     day_flag = 1
@@ -3531,7 +3515,7 @@ class CheckMultiRecords(object):
                             if not t:
                                 continue
                             bingcheng_date = datetime.strptime(t[:10], '%Y-%m-%d')
-                            if (bingcheng_date-operation_date).days == 1:
+                            if (bingcheng_date - operation_date).days == 1:
                                 one_flag = False
                                 break
                         flag = one_flag
@@ -3544,21 +3528,18 @@ class CheckMultiRecords(object):
                             if not t:
                                 continue
                             bingcheng_date = datetime.strptime(t[:10], '%Y-%m-%d')
-                            if (bingcheng_date-operation_date).days == 1:
+                            if (bingcheng_date - operation_date).days == 1:
                                 one_flag = True
                                 reason = '手术患者缺失术后第二天病程记录'
-                            elif one_flag and (bingcheng_date-operation_date).days == 2:
+                            elif one_flag and (bingcheng_date - operation_date).days == 2:
                                 two_flag = False
                         flag = two_flag
                 if flag:
                     error_info = {'code': 'SHBC0008',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3567,8 +3548,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shoushu_creator(self, collection_name, **json_file):
@@ -3577,6 +3558,10 @@ class CheckMultiRecords(object):
         手术记录--主刀医师名称 不等于 手术记录--creator_name -->检出(永久起搏器植入之类的手术未检测)
         SSJL0004
         """
+        if len(self.regular_model.get('SSJL0004', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SSJL0004'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SSJL0004', json_file):
             mongo_result = [json_file]
         else:
@@ -3591,11 +3576,10 @@ class CheckMultiRecords(object):
                 one_record = collection_data['shoushujilu'][0]
                 surgeon = one_record.get('surgeon', '')
                 creator_name = one_record.get('creator_name', '')
-                file_time_value = one_record.get('file_time_value', '')
-                last_modify_date_time = one_record.get('last_modify_date_time', '')
                 first_assistant = one_record.get('first_assistant', '')
-                if (surgeon in creator_name) or (first_assistant in creator_name) or (creator_name in surgeon) or (creator_name in first_assistant):
-                    if surgeon or surgeon == '术':
+                last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
+                if surgeon in creator_name or surgeon in first_assistant or creator_name in surgeon or first_assistant in surgeon:
+                    if surgeon:
                         continue
                     else:
                         reason = '无主刀医师记录'
@@ -3604,11 +3588,8 @@ class CheckMultiRecords(object):
                 error_info = {'code': 'SSJL0004',
                               'num': num,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                        collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -3617,8 +3598,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_yizhu_baguan(self, collection_name, **json_file):
@@ -3627,6 +3608,10 @@ class CheckMultiRecords(object):
         医嘱order_item_name里面找拔管记录 同日日常病程src里找TOPIC=拔管记录
         RCBC0002
         """
+        if len(self.regular_model.get('RCBC0002', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0002'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0002', json_file):
             mongo_result = [json_file]
         else:
@@ -3658,8 +3643,7 @@ class CheckMultiRecords(object):
                 if not richang_src_data:
                     continue
                 flag = False
-                last_modify_date_time = ''
-                file_time_value = ''
+                file_time = '无文书时间'
                 creator_name = ''
                 for richang_one in richang_src_data:
                     if 'caption_date_time' not in richang_one:
@@ -3669,8 +3653,7 @@ class CheckMultiRecords(object):
                     if richang_one['topic'] == '拔管记录':
                         for yizhu_time in record_list:
                             if richang_one['caption_date_time'][:10] == yizhu_time:
-                                last_modify_date_time = richang_one.get('last_modify_date_time', '')
-                                file_time_value = richang_one.get('caption_date_time', '')
+                                file_time = richang_one.get('last_modify_date_time', '无文书时间')
                                 flag = True
                                 break
                     if flag:
@@ -3680,11 +3663,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0002',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, 'yizhu')
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3694,8 +3673,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append('yizhu')
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_baguanjilu(self, collection_name, **json_file):
@@ -3704,6 +3683,10 @@ class CheckMultiRecords(object):
         日常病程记录文档模型中拔管模型的检测
         RCBC0003
         """
+        if len(self.regular_model.get('RCBC0003', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0003'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0003', json_file):
             mongo_result = [json_file]
         else:
@@ -3726,9 +3709,14 @@ class CheckMultiRecords(object):
                         continue
                     reason = list()
                     flag = False
-                    creator_name = one_data.get('creator_name', '')
-                    file_time_value = one_data.get('file_time_value', '')
-                    last_modify_date_time = one_data.get('last_modify_date_time', '')
+                    if 'last_modify_date_time' in one_data:
+                        file_time = one_data['last_modify_date_time']
+                    else:
+                        file_time = '无文书时间'
+                    if 'creator_name' in one_data:
+                        creator_name = one_data['creator_name']
+                    else:
+                        creator_name = ''
                     if 'extubation_type' not in one_data['extubation']:
                         flag = True
                         reason.append('缺失拔管类型')
@@ -3749,11 +3737,7 @@ class CheckMultiRecords(object):
                         error_info = {'code': 'RCBC0003',
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -3764,8 +3748,8 @@ class CheckMultiRecords(object):
                             patient_result['pat_info']['html'].append(collection_name)
                         self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_operation_hematoma(self, collection_name, **json_file):
@@ -3775,13 +3759,17 @@ class CheckMultiRecords(object):
         无术前小结
         SSJL0003
         """
+        if len(self.regular_model.get('SSJL0003', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SSJL0003'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SSJL0003', json_file):
             mongo_result = [json_file]
         else:
             return self.all_result
         # 非第一次手术，且preoperative_diagnosis术前诊断存在
-        # collection_shuhou = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
-        #                                                     collection_name='shuhoubingchengjilu')
+        collection_shuhou = self.PushData.connectCollection(database_name=self.PushData.mongodb_database_name,
+                                                            collection_name='shuhoubingchengjilu')
         for data in mongo_result:
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
@@ -3790,66 +3778,47 @@ class CheckMultiRecords(object):
                 if collection_name not in collection_data:
                     continue
                 flag = False
+                file_time = '无文书时间'
                 creator_name = ''
-                file_time_value = ''
-                last_modify_date_time = ''
                 for one_data in collection_data[collection_name]:
                     if 'first_operation' not in one_data:
                         continue
-                    if (one_data['first_operation'] != 'false') or (one_data['first_operation'] != '否') or one_data['first_operation']:
+                    if (one_data['first_operation'] != 'false') or (one_data['first_operation'] != '否') or one_data[
+                        'first_operation']:
                         continue
                     if 'preoperative_diagnosis' not in one_data:
                         continue
                     if '血肿' not in one_data['preoperative_diagnosis']:
                         continue
                     flag = True
-                    creator_name = one_data.get('creator_name', '')
-                    file_time_value = one_data.get('file_time_value', '')
-                    last_modify_date_time = one_data.get('last_modify_date_time', '')
+                    if 'last_modify_date_time' in one_data:
+                        file_time = one_data['last_modify_date_time']
+                    if 'creator_name' in one_data:
+                        creator_name = one_data['creator_name']
                     break
                 if not flag:  # flag == True 时表示非第一次手术，且术前诊断没有血肿
                     continue
                 patient_id = patient_result['pat_info']['patient_id']
                 visit_id = patient_result['pat_info']['visit_id']
-                visit_id_pre = int(visit_id)-1
+                visit_id_pre = int(visit_id) - 1
+                id_pre = ''
                 while visit_id_pre > 0:
-                    expression = [
-                        [
-                            {"field": "患者标识", "exp": "=", "flag": "or", "unit": "", "values": [patient_id]}
-                        ],
-                        [
-                            {"field": "住院病案首页_就诊信息_就诊次数", "exp": "=", "flag": "or", "unit": "", "values": [str(visit_id_pre)]}
-                        ]
-                    ]
-                    es_result = self.app_es.getId(expression)
-                    if es_result.get('res_flag') and es_result.get('count', 0):
+                    id_pre = self.hospital_code + '#' + patient_id + '#' + str(visit_id_pre)
+                    if collection_shuhou.find_one({'_id': id_pre}, {}):
                         break
+                    id_pre = ''
                     visit_id_pre -= 1
-                if not visit_id_pre:
+                if not id_pre:
                     continue
-                expression = [
-                    [
-                        {"field": "患者标识", "exp": "=", "flag": "or", "unit": "", "values": [patient_id]}
-                    ],
-                    [
-                        {"field": "住院病案首页_就诊信息_就诊次数", "exp": "=", "flag": "or", "unit": "", "values": [str(visit_id_pre)]}
-                    ],
-                    [
-                        {"field": "住院术后病程记录_当前病情记录_疾病名称", "exp": "=", "flag": "or", "unit": "", "values": ['血肿']}
-                    ]
-                ]
-                es_result = self.app_es.getId(expression)
-                if not es_result.get('res_flag'):
+                shuhou = collection_shuhou.find_one({'_id': id_pre, 'shuhoubingchengjilu.problem_list.disease': '血肿'},
+                                                    {})
+                if not shuhou:
                     continue
                 reason = '无前次手术术后疾病"血肿"。'
                 error_info = {'code': 'SSJL0003',
                               'num': num,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -3859,8 +3828,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_operation_tube(self, collection_name, **json_file):
@@ -3869,6 +3838,10 @@ class CheckMultiRecords(object):
         住院出院记录--出院注意事项不含“带管出院”字段 and 手术记录--置管个数 ≠ 手术日期后拔管记录--拔管数 -->检出
         SSJL0001
         """
+        if len(self.regular_model.get('SSJL0001', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SSJL0001'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SSJL0001', json_file):
             mongo_result = [json_file]
         else:
@@ -3899,9 +3872,14 @@ class CheckMultiRecords(object):
                         continue
                     if 'file_time_value' not in one_record:
                         continue
-                    creator_name = one_record.get('creator_name', '')
-                    last_modify_date_time = one_record.get('last_modify_date_time', '')
-                    file_time_value = one_record.get('file_time_value', '')
+                    if 'creator_name' in one_record:
+                        creator_name = one_record['creator_name']
+                    else:
+                        creator_name = ''
+                    if 'last_modify_date_time' in one_record:
+                        last_modify_date_time = one_record['last_modify_date_time']
+                    else:
+                        last_modify_date_time = '无文书时间'
                     tube_num = 0
                     for t in one_record['procedure']['tube']:
                         if 'cathetering_num' in t:
@@ -3918,7 +3896,8 @@ class CheckMultiRecords(object):
                         else:
                             tube_num += 1
                     if tube_num:
-                        operation_tube.append((tube_num, file_time_value, creator_name, last_modify_date_time))
+                        operation_tube.append(
+                            (tube_num, one_record['file_time_value'], creator_name, last_modify_date_time))
                 if not operation_tube:
                     continue
                 operation_tube.sort(key=lambda l: l[1])
@@ -3933,9 +3912,8 @@ class CheckMultiRecords(object):
                 #                                                {'richangbingchengjilu.extubation': 1,
                 #                                                 'richangbingchengjilu.file_time_value': 1})
                 reason = ''
-                creator_name = ''
-                file_time_value = ''
                 last_modify_date_time = ''
+                creator_name = ''
                 if bingcheng_result:
                     bingcheng_extubation = list()
                     for one_record in bingcheng_result['richangbingchengjilu']:
@@ -3971,9 +3949,9 @@ class CheckMultiRecords(object):
                                     continue
                                 bingcheng_total += bingcheng_record[0]
                             if operation_record[0] != bingcheng_total:
-                                reason = '手术记录中的置管个数<{0}>不等于手术日期后拔管记录数<{1}>'.format(operation_record[0], bingcheng_total)
+                                reason = '手术记录中的置管个数<{0}>不等于手术日期后拔管记录数<{1}>'.format(operation_record[0],
+                                                                                    bingcheng_total)
                                 creator_name = operation_record[2]
-                                file_time_value = operation_record[1]
                                 last_modify_date_time = operation_record[3]
                                 break
                 else:
@@ -3982,11 +3960,10 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SSJL0001',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    if not last_modify_date_time:
+                        last_modify_date_time = '无文书时间'
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -3996,8 +3973,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_huli_tiwen(self, collection_name, **json_file):
@@ -4007,6 +3984,10 @@ class CheckMultiRecords(object):
         HL0002
         external = richangbingchengjilu
         """
+        if len(self.regular_model.get('HL0002', list())) <= 6:
+            return self.all_result
+        if self.regular_model['HL0002'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('HL0002', json_file):
             mongo_result = [json_file]
         else:
@@ -4043,10 +4024,10 @@ class CheckMultiRecords(object):
                         date = datetime.strptime(t[-1], '%Y-%m-%d')
                         continue
                     d = datetime.strptime(t[-1], '%Y-%m-%d')
-                    if (d-date).days == 0:
+                    if (d - date).days == 0:
                         date = d
                         continue
-                    elif (d-date).days == 1:
+                    elif (d - date).days == 1:
                         res_flag = True
                         break
                 if not res_flag:
@@ -4072,16 +4053,11 @@ class CheckMultiRecords(object):
                             continue
                 reason = '体温连续两天高于38.5，病程未记录'
                 error_info = {'code': 'HL0002',
-                                      'num': num,
-                                      'reason': reason}
+                              'num': num,
+                              'reason': reason}
                 creator_name = last_data.get('creator_name', '')
-                file_time_value = last_data.get('file_time_value', '')
-                last_modify_date_time = last_data.get('last_modify_date_time', '')
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                file_time = last_data.get('last_modify_date_time', '无文书时间')
+                error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -4091,8 +4067,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append('hulitizhengyangli')
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_gender(self, collection_name, **json_file):
@@ -4102,6 +4078,10 @@ class CheckMultiRecords(object):
         住院病案首页-基本信息-证件号码 判断是否为18位，如是，倒数第二位为偶数 and 住院病案首页-基本信息-性别名称==男
         SY0001
         """
+        if len(self.regular_model.get('SY0001', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SY0001'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SY0001', json_file):
             mongo_result = [json_file]
         else:
@@ -4121,7 +4101,8 @@ class CheckMultiRecords(object):
                 sex_name = data.get(collection_name, dict()).get('pat_info', dict()).get('sex_name', dict())
                 if not sex_name:
                     continue
-                if ((int(id_card_no[-2]) % 2) and sex_name == '男') or ((int(id_card_no[-2]) % 2 == 0) and sex_name == '女'):
+                if ((int(id_card_no[-2]) % 2) and sex_name == '男') or (
+                        (int(id_card_no[-2]) % 2 == 0) and sex_name == '女'):
                     continue
                 reason = '病案首页病人信息性别有误'
                 error_info = {'code': 'SY0001',
@@ -4129,8 +4110,8 @@ class CheckMultiRecords(object):
                               'id_card_no': id_card_no,
                               'sex_name': sex_name,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      collection_name=collection_name)
+                last_modify_date_time = '无文书时间'
+                error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -4140,8 +4121,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[mq_id] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_chuyuan_diagnosis(self, collection_name, **json_file):
@@ -4154,7 +4135,7 @@ class CheckMultiRecords(object):
         regular_code = ['CYJL0002', 'CYJL0003', 'CYJL0004', 'CYJL0005', 'CYJL0006', 'CYJL0007']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') == '启用':
+            if self.regular_model[i][6] == '启用':
                 regular_boolean.append(False)
             else:
                 regular_boolean.append(True)
@@ -4189,9 +4170,8 @@ class CheckMultiRecords(object):
                 if 'discharge_diagnosis' not in chuyuan_data['chuyuanjilu']:
                     continue
                 creator_name = chuyuan_data['chuyuanjilu'].get('creator_name', '')
-                file_time_value = chuyuan_data['chuyuanjilu'].get('file_time_value', '')
-                last_modify_date_time = chuyuan_data['chuyuanjilu'].get('last_modify_date_time', '')
-                file_time = data.get('binganshouye', dict()).get('pat_visit', dict()).get('discharge_time', '')  # 获取出院时间
+                file_time = data.get('binganshouye', dict()).get('pat_visit', dict()).get('discharge_time',
+                                                                                          '')  # 获取出院时间
                 if not file_time:
                     continue
                 diagnosis_name = self.gain_info._gain_diagnosis_name(chuyuan_data['chuyuanjilu']['discharge_diagnosis'])
@@ -4250,7 +4230,8 @@ class CheckMultiRecords(object):
                             if (i.get('report_time', '')[:10] == file_time[:10]) and (float(v) < 120):
                                 flag['low_blood'] = True
                 push_flag = False
-                if flag['lower_k'] and self.filter_dept('CYJL0002', json_file):
+                if flag['lower_k'] and len(self.regular_model.get('CYJL0002', list())) > 6 and \
+                        self.regular_model['CYJL0002'][6] == '启用' and self.filter_dept('CYJL0002', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['低钾血症'], diagnosis_name)
                     if not same_flag:  # 没有低钾血症的话
@@ -4261,17 +4242,14 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['high_k'] and self.filter_dept('CYJL0003', json_file):
+                if flag['high_k'] and len(self.regular_model.get('CYJL0003', list())) > 6 and \
+                        self.regular_model['CYJL0003'][6] == '启用' and self.filter_dept('CYJL0003', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['高钾血症'], diagnosis_name)
                     if not same_flag:
@@ -4282,17 +4260,14 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['lower_na'] and self.filter_dept('CYJL0004', json_file):
+                if (flag['lower_na'] and len(self.regular_model.get('CYJL0004', list())) > 6 and
+                    self.regular_model['CYJL0004'][6] == '启用') and self.filter_dept('CYJL0004', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['低钠血症'], diagnosis_name)
                     if not same_flag:
@@ -4303,17 +4278,14 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['high_na'] and self.filter_dept('CYJL0005', json_file):
+                if flag['high_na'] and len(self.regular_model.get('CYJL0005', list())) > 6 and \
+                        self.regular_model['CYJL0005'][6] == '启用' and self.filter_dept('CYJL0005', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['高钠血症'], diagnosis_name)
                     if not same_flag:
@@ -4324,17 +4296,14 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['low_blood'] and self.filter_dept('CYJL0006', json_file):
+                if flag['low_blood'] and len(self.regular_model.get('CYJL0006', list())) > 6 and \
+                        self.regular_model['CYJL0006'][6] == '启用' and self.filter_dept('CYJL0006', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['贫血'], diagnosis_name)
                     if not same_flag:
@@ -4345,17 +4314,14 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
                         num += 1
 
-                if flag['low_albumin'] and self.filter_dept('CYJL0007', json_file):
+                if flag['low_albumin'] and len(self.regular_model.get('CYJL0007', list())) > 6 and \
+                        self.regular_model['CYJL0007'][6] == '启用' and self.filter_dept('CYJL0007', json_file):
                     error_info = dict()
                     same_flag = self.gain_info._gain_same_content(['低蛋白血症'], diagnosis_name)
                     if not same_flag:
@@ -4366,11 +4332,7 @@ class CheckMultiRecords(object):
                                       'reason': reason}
                     if error_info:
                         push_flag = True
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name='chuyuanjilu')
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, 'chuyuanjilu')
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -4382,10 +4344,10 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append('chuyuanjilu')
                     self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
-    
+
     def check_chuyuan_chuyuandaiyao(self, collection_name, **json_file):
         """
         collection = chuyuanjilu
@@ -4394,7 +4356,14 @@ class CheckMultiRecords(object):
         CYJL0008, CYJL0009
         external = yizhu
         """
-        if self.regular_model.get('CYJL0008', dict()).get('status') != '启用' and self.regular_model.get('CYJL0009', dict()).get('status') != '启用':
+        regular_code = ['CYJL0008', 'CYJL0009']
+        regular_boolean = list()
+        for i in regular_code:
+            if len(self.regular_model.get(i, list())) > 6 and self.regular_model[i][6] == '启用':
+                regular_boolean.append(False)
+            else:
+                regular_boolean.append(True)
+        if all(regular_boolean):
             return self.all_result
         if json_file:
             mongo_result = [json_file]
@@ -4410,9 +4379,10 @@ class CheckMultiRecords(object):
                 medicine_model = collection_data.get(collection_name, dict()).get('medicine', list())
                 if not medicine_model:
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                file_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                           collection_name=collection_name)  # 获取文书时间
                 flag = False
                 chuyuan_medicine = dict()  # {'药品名称': {用量}}
                 for one_record in medicine_model:
@@ -4423,16 +4393,13 @@ class CheckMultiRecords(object):
                         if 'dosage' in one_record:
                             chuyuan_medicine[one_record['medicine_name']].add(one_record['dosage'])
                             flag = True
-                if not flag and len(self.regular_model.get('CYJL0008', list())) > 6 and self.regular_model['CYJL0008'][6] == '启用' and self.filter_dept('CYJL0008', json_file):
+                if not flag and len(self.regular_model.get('CYJL0008', list())) > 6 and self.regular_model['CYJL0008'][
+                    6] == '启用' and self.filter_dept('CYJL0008', json_file):
                     reason = '出院带药未描述用法、用量'
                     error_info = {'code': 'CYJL0008',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -4459,7 +4426,8 @@ class CheckMultiRecords(object):
                         continue
                     yizhu_medicine = dict()
                     for one_record in yizhu_result['yizhu']:
-                        if one_record.get('order_time', '')[:10] == file_time_value[:10]:  # and one_record.get('pharmacy_way_name', '') == '出院带药':
+                        if one_record.get('order_time', '')[:10] == file_time[:10] and one_record.get(
+                                'pharmacy_way_name', '') == '出院带药':
                             if one_record.get('order_item_name', ''):
                                 yizhu_medicine.setdefault(one_record['order_item_name'], set())
                             if one_record.get('china_approved_drug_name', ''):
@@ -4469,16 +4437,13 @@ class CheckMultiRecords(object):
                     chuyuan_content = list(chuyuan_medicine.keys())
                     yizhu_content = list(yizhu_medicine.keys())
                     same_content = self.gain_info._gain_same_content(chuyuan_content, yizhu_content)
-                    if not same_content and self.filter_dept('CYJL0009', json_file):
+                    if not same_content and len(self.regular_model.get('CYJL0009', list())) > 6 and \
+                            self.regular_model['CYJL0009'][6] == '启用' and self.filter_dept('CYJL0009', json_file):
                         reason = '医嘱中不含出院记录的出院带药'
                         error_info = {'code': 'CYJL0009',
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info,
-                                                              creator_name=creator_name,
-                                                              file_time_value=file_time_value,
-                                                              last_modify_date_time=last_modify_date_time,
-                                                              collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, creator_name, file_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -4491,16 +4456,15 @@ class CheckMultiRecords(object):
                             chuyuan_dosage = chuyuan_medicine[k]
                             yizhu_dosage = yizhu_medicine[same_content[k]]
                             same_dosage = chuyuan_dosage & yizhu_dosage
-                            if not same_dosage and self.filter_dept('CYJL0009', json_file):
+                            if not same_dosage and len(self.regular_model.get('CYJL0009', list())) > 6 and \
+                                    self.regular_model['CYJL0009'][6] == '启用' and self.filter_dept('CYJL0009',
+                                                                                                   json_file):
                                 reason = '医嘱中与出院记录中相同药品用量不一致'
                                 error_info = {'code': 'CYJL0009',
                                               'num': num,
                                               'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                                      creator_name=creator_name,
-                                                                      file_time_value=file_time_value,
-                                                                      last_modify_date_time=last_modify_date_time,
-                                                                      collection_name=collection_name)
+                                error_info = self.supplement_error_info(error_info, creator_name, file_time,
+                                                                        collection_name)
                                 if 'score' in error_info:
                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                 patient_result['pat_value'].append(error_info)
@@ -4509,8 +4473,8 @@ class CheckMultiRecords(object):
                                     patient_result['pat_info']['html'].append(collection_name)
                                 self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shouyeshoushu_shangjichafang(self, collection_name, **json_file):
@@ -4522,6 +4486,10 @@ class CheckMultiRecords(object):
         external = shouyeshoushu
         RCBC0021
         """
+        if len(self.regular_model.get('RCBC0021', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0021'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0021', json_file):
             mongo_result = [json_file]
         else:
@@ -4553,19 +4521,18 @@ class CheckMultiRecords(object):
                 if not operation_info:
                     continue
                 flag = False
-                last_modify_date_time = ''
+                last_modify_date_time = '无文书时间'
                 creator_name = ''
-                file_time_value = ''
                 for one_record in collection_data[collection_name]:
                     if 'creator_name' not in one_record:
                         continue
                     if 'file_time_value' not in one_record:
                         continue
                     creator_name = one_record.get('creator_name', '')
-                    file_time_value = one_record.get('file_time_value', '')
-                    last_modify_date_time = one_record.get('last_modify_date_time', '')
+                    last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                     for k, v in operation_info.items():
-                        if one_record['file_time_value'] < k and (v in one_record['creator_name']):  # 手术以前的上级医师查房, 术者名称在查房记录书写者中
+                        if one_record['file_time_value'] < k and (
+                                v in one_record['creator_name']):  # 手术以前的上级医师查房, 术者名称在查房记录书写者中
                             flag = True
                             break
                     if flag:  # 查房者中有手术记录者，不检出
@@ -4575,11 +4542,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0021',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -4588,8 +4552,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shouyeshoushu_richangbingcheng(self, collection_name, **json_file):
@@ -4601,6 +4565,10 @@ class CheckMultiRecords(object):
         external = shouyeshoushu
         RCBC0020
         """
+        if len(self.regular_model.get('RCBC0020', list())) <= 6:
+            return self.all_result
+        if self.regular_model['RCBC0020'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('RCBC0020', json_file):
             mongo_result = [json_file]
         else:
@@ -4632,19 +4600,18 @@ class CheckMultiRecords(object):
                 if not operation_info:
                     continue
                 flag = False
-                last_modify_date_time = ''
+                last_modify_date_time = '无文书时间'
                 creator_name = ''
-                file_time_value = ''
                 for one_record in collection_data[collection_name]:
                     if 'creator_name' not in one_record:
                         continue
                     if 'file_time_value' not in one_record:
                         continue
                     creator_name = one_record.get('creator_name', '')
-                    last_modify_date_time = one_record.get('last_modify_date_time', '')
-                    file_time_value = one_record.get('file_time_value', '')
+                    last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                     for k, v in operation_info.items():
-                        if one_record['file_time_value'] < k and (v in one_record['creator_name']):  # 手术以前的上级医师查房, 术者名称在查房记录书写者中
+                        if one_record['file_time_value'] < k and (
+                                v in one_record['creator_name']):  # 手术以前的上级医师查房, 术者名称在查房记录书写者中
                             flag = True
                             break
                     if flag:  # 查房者中有手术记录者，不检出
@@ -4654,11 +4621,8 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'RCBC0020',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info,
-                                                          creator_name=creator_name,
-                                                          file_time_value=file_time_value,
-                                                          last_modify_date_time=last_modify_date_time,
-                                                          collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                            collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -4667,8 +4631,8 @@ class CheckMultiRecords(object):
                         patient_result['pat_info']['html'].append(collection_name)
                     self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_shoushu_buwei(self, collection_name, **json_file):
@@ -4679,6 +4643,10 @@ class CheckMultiRecords(object):
         有问题
         SSJL0005
         """
+        if len(self.regular_model.get('SSJL0005', list())) <= 6:
+            return self.all_result
+        if self.regular_model['SSJL0005'][6] != '启用':
+            return self.all_result
         if json_file and self.filter_dept('SSJL0005', json_file):
             mongo_result = [json_file]
         else:
@@ -4692,8 +4660,7 @@ class CheckMultiRecords(object):
                     continue
                 one_record = collection_data[collection_name][0]
                 creator_name = one_record.get('creator_name', '')
-                file_time_value = one_record.get('file_time_value', '')
-                last_modify_date_time = one_record.get('last_modify_date_time', '')
+                last_modify_date_time = one_record.get('last_modify_date_time', '无文书时间')
                 operation_name = one_record.get('operation_name')
                 if not operation_name:
                     continue
@@ -4719,11 +4686,8 @@ class CheckMultiRecords(object):
                               'operation_name': operation_name,
                               'procedure': procedure_src,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                        collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -4732,8 +4696,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_birth_weight(self, collection_name, **json_file):
@@ -4767,7 +4731,8 @@ class CheckMultiRecords(object):
                 error_info = {'code': 'SY0003',
                               'num': num,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                last_modify_date_time = '无文书时间'
+                error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -4776,8 +4741,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_admission_weight(self, collection_name, **json_file):
@@ -4800,7 +4765,9 @@ class CheckMultiRecords(object):
                 try:
                     age = float(age)
                 except:
-                    self.logger.info('\n新生儿年龄问题SY0004:\n\tid: {0}\n\tage: {1}\n'. format(data['_id'], age))
+                    logger.info('\n新生儿年龄问题SY0004:\n\tid: {0}\n\tage: {1}\n'.
+                                format(data['_id'],
+                                       age))
                     continue
                 if age <= 28:
                     if not data.get('binganshouye', dict()).get('pat_info', dict()).get('baby_admin_weight'):
@@ -4809,7 +4776,8 @@ class CheckMultiRecords(object):
                                       'num': num,
                                       'age': '{}{}'.format(age, age_unit),
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        last_modify_date_time = '无文书时间'
+                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -4818,8 +4786,8 @@ class CheckMultiRecords(object):
                             patient_result['pat_info']['html'].append(collection_name)
                         self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_marital_status(self, collection_name, **json_file):
@@ -4836,7 +4804,8 @@ class CheckMultiRecords(object):
             try:
                 collection_data, patient_result, num = self.get_patient_info(data, collection_name)
                 filter_condition = {'未婚', '已婚', '其他', '其它'}
-                ruyuan_status = collection_data.get(collection_name, dict()).get('menstrual_and_obstetrical_histories', dict()).get('marriage_status')
+                ruyuan_status = collection_data.get(collection_name, dict()).get('menstrual_and_obstetrical_histories',
+                                                                                 dict()).get('marriage_status')
                 if not ruyuan_status:
                     continue
                 elif ruyuan_status not in filter_condition:
@@ -4848,20 +4817,18 @@ class CheckMultiRecords(object):
                     continue
                 if bingan_status == ruyuan_status:
                     continue
-                creator_name = collection_data.get(collection_name, dict()).get('creator_name', '')
-                last_modify_date_time = collection_data.get(collection_name, dict()).get('last_modify_date_time', '')
-                file_time_value = collection_data.get(collection_name, dict()).get('file_time_value', '')
+                creator_name = self.gain_info._gain_file_creator(cursor=collection_data,
+                                                                 collection_name=collection_name)
+                last_modify_date_time = self.gain_info._gain_file_time(cursor=collection_data,
+                                                                       collection_name=collection_name)  # 获取文书时间
                 reason = '入院记录与病案首页婚姻状态不一致'
                 error_info = {'code': 'SY0005',
                               'num': num,
                               'ruyuanjilu_status': ruyuan_status,
                               'binganshouye_status': bingan_status,
                               'reason': reason}
-                error_info = self.supplementErrorInfo(error_info=error_info,
-                                                      creator_name=creator_name,
-                                                      file_time_value=file_time_value,
-                                                      last_modify_date_time=last_modify_date_time,
-                                                      collection_name=collection_name)
+                error_info = self.supplement_error_info(error_info, creator_name, last_modify_date_time,
+                                                        collection_name)
                 if 'score' in error_info:
                     patient_result['pat_info']['machine_score'] += error_info['score']
                 patient_result['pat_value'].append(error_info)
@@ -4870,8 +4837,8 @@ class CheckMultiRecords(object):
                     patient_result['pat_info']['html'].append(collection_name)
                 self.all_result[data['_id']] = patient_result
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_items_shouyeshoushu(self, collection_name, **json_file):
@@ -4890,7 +4857,7 @@ class CheckMultiRecords(object):
         regular_code = ['SY0006', 'SY0007', 'SY0009', 'SY0011', 'SY0012']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') == '启用':
+            if self.filter_dept(i):
                 regular_boolean.append(False)
             else:
                 regular_boolean.append(True)
@@ -4919,22 +4886,25 @@ class CheckMultiRecords(object):
                     operation_name = one_record.get('operation_name')  # 手术与操作名称
                     operation_code = one_record.get('operation_code')  # 手术与操作编码
                     operation_date = one_record.get('operation_date')  # 手术与操作时间
-                    operation_type = one_record.get('operation_type')  # 手术与操作类型
                     operator = one_record.get('operator')  # 术者
                     operation_grade_name = one_record.get('operation_grade_name')  # 手术级别名称
                     wound_grade_name = one_record.get('wound_grade_name')  # 切口等级名称
                     healing_grade_name = one_record.get('healing_grade_name')  # 愈合等级
 
                     if self.filter_dept('SY0006', data):
-                        one_item = (operation_code, operation_name, operation_date)
-                        if operation_name and operation_code:
-                            if one_item in repeat_items:
-                                reason_repeat.add('手术与操作名称/手术与操作编码/手术与操作时间')
+                        if operation_name:
+                            if operation_name in repeat_items:
+                                reason_repeat.add('手术与操作名称')
                             else:
-                                repeat_items.add(one_item)
+                                repeat_items.add(operation_name)
+                        if operation_code:
+                            if operation_code in repeat_items:
+                                reason_repeat.add('手术与操作编码')
+                            else:
+                                repeat_items.add(operation_code)
 
                     if shoushujilu_result and self.filter_dept('SY0007', data) and not lack_items:
-                        if operation_name and '术' in operation_name and operation_type == '手术':
+                        if operation_name and '术' in operation_name:
                             if not operation_code:
                                 lack_items.add('手术与操作编码')
                             if not operation_date:
@@ -4946,10 +4916,10 @@ class CheckMultiRecords(object):
 
                     if self.filter_dept('SY0009', data) and operation_date and not reason_time:
                         if admission_time:
-                            if operation_date[:10] < admission_time[:10]:
+                            if operation_date < admission_time:
                                 reason_time = '手术与操作时间早于入院时间'
                         if discharge_time:
-                            if operation_date[:10] > discharge_time[:10]:
+                            if operation_date > discharge_time:
                                 reason_time = '手术与操作时间晚于出院时间'
 
                     if self.filter_dept('SY0011', data) and wound_grade_name and not reason_healing:
@@ -4957,7 +4927,8 @@ class CheckMultiRecords(object):
                             if not healing_grade_name:
                                 reason_healing = '切口等级为{0}，愈合等级未填写'.format(wound_grade_name)
 
-                    if self.filter_dept('SY0012', data) and wound_grade_name == 'I' and healing_grade_name == '丙' and not reason_wound:
+                    if self.filter_dept('SY0012',
+                                        data) and wound_grade_name == 'I' and healing_grade_name == '丙' and not reason_wound:
                         reason_wound = "切口等级为'I'，愈合等级为'丙'"
                 for item in repeat_items:
                     if '会诊' in item:
@@ -4967,7 +4938,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0006',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -4981,7 +4952,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0007',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -4994,7 +4965,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0009',
                                   'num': num,
                                   'reason': reason_time}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5007,7 +4978,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0011',
                                   'num': num,
                                   'reason': reason_healing}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5020,7 +4991,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0012',
                                   'num': num,
                                   'reason': reason_healing}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5030,10 +5001,10 @@ class CheckMultiRecords(object):
                     self.all_result[data['_id']] = patient_result
                     num += 1
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
-    
+
     def check_code_shouyezhenduan(self, collection_name, **json_file):
         """
         collection = shouyezhenduan
@@ -5063,11 +5034,13 @@ class CheckMultiRecords(object):
         SY0014, SY0015, SY0016, SY0017, SY0018, SY0019, SY0020, SY0021, SY0022, SY0023, SY0047, SY0048, SY0049
         SY0051, SY0053, SY0054, SY0055, SY0056, SY0050, SY0052
         """
-        regular_code = ['SY0014', 'SY0015', 'SY0016', 'SY0017', 'SY0018', 'SY0019', 'SY0020', 'SY0021', 'SY0022', 'SY0023',
-                        'SY0047', 'SY0048', 'SY0049', 'SY0050', 'SY0051', 'SY0052', 'SY0053', 'SY0054', 'SY0055', 'SY0056', ]
+        regular_code = ['SY0014', 'SY0015', 'SY0016', 'SY0017', 'SY0018', 'SY0019', 'SY0020', 'SY0021', 'SY0022',
+                        'SY0023',
+                        'SY0047', 'SY0048', 'SY0049', 'SY0050', 'SY0051', 'SY0052', 'SY0053', 'SY0054', 'SY0055',
+                        'SY0056', ]
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') == '启用':
+            if self.filter_dept(i):
                 regular_boolean.append(False)
             else:
                 regular_boolean.append(True)
@@ -5108,19 +5081,20 @@ class CheckMultiRecords(object):
                 if self.filter_dept('SY0021', data):
                     if data.get('binganshouye', dict()).get('pat_visit', dict()).get('visit_type_name') == '医疗保险':
                         yiliaobaoxian_flag = True
-                        
+
                 # SY0022
                 first_visit = False
                 if self.filter_dept('SY0022', data):
                     if data.get('binganshouye', dict()).get('pat_visit', dict()).get('visit_id') == '1':
                         first_visit = True
-                        
+
                 # SY0023
                 chanke_flag = False  # 规则不启用，为False，后续不再判断诊断编码
                 if self.filter_dept('SY0023', data):
                     dept = data.get('binganshouye', dict()).get('pat_visit', dict()).get('dept_discharge_from_name')
                     if not dept:
-                        district = data.get('binganshouye', dict()).get('pat_visit', dict()).get('district_discharge_from_name', '')
+                        district = data.get('binganshouye', dict()).get('pat_visit', dict()).get(
+                            'district_discharge_from_name', '')
                         dept = self.parameters.ward_dept.get(district, '')
                     if dept == '产科':
                         chanke_flag = False  # 科室为产科，后续不再判断诊断编码
@@ -5157,23 +5131,26 @@ class CheckMultiRecords(object):
                 sy0056_flag = False
                 sy0056_bingli = False
                 for one_record in collection_data[collection_name]:
-                    
+
                     diagnosis_code = one_record.get('diagnosis_code', '')
                     diagnosis_type_name = one_record.get('diagnosis_type_name')
                     diagnosis_name = one_record.get('diagnosis_name')
                     diagnosis_num = one_record.get('diagnosis_num')
 
                     if 'M' in diagnosis_code:
-                        if (diagnosis_type_name == '门(急)诊诊断' or diagnosis_type_name == '门诊诊断') and self.filter_dept('SY0048', data) and False:
+                        if (diagnosis_type_name == '门(急)诊诊断' or diagnosis_type_name == '门诊诊断') and self.filter_dept(
+                                'SY0048', data) and False:
                             sy0048_flag = True
                         elif diagnosis_type_name == '出院诊断' and self.filter_dept('SY0047', data) and False:
                             sy0047_flag = True
 
                     if diagnosis_type_name == '出院诊断':
                         if diagnosis_code:
-                            if re.findall('^(C[0-8][0-9]|C[9][0-7])', diagnosis_code) or re.findall('^(D[0-3][0-9]|D[4][0-8])', diagnosis_code):
+                            if re.findall('^(C[0-8][0-9]|C[9][0-7])', diagnosis_code) or re.findall(
+                                    '^(D[0-3][0-9]|D[4][0-8])', diagnosis_code):
                                 # SY0016
-                                if len(diagnosis_code) > 3 and binglibaogao_data and not binglizhenduan_flag and diagnosis_num == '1':
+                                if len(
+                                        diagnosis_code) > 3 and binglibaogao_data and not binglizhenduan_flag and diagnosis_num == '1':
                                     binglizhenduan_flag = True
                                 # SY0017
                                 if self.filter_dept('SY0017', data) and diagnosis_num == '1':
@@ -5182,13 +5159,15 @@ class CheckMultiRecords(object):
 
                             # SY0018
                             if self.filter_dept('SY0018', data):
-                                if len(diagnosis_code) > 3 and re.findall('^D0[0-9]$', diagnosis_code) and not first_flag:  # 第一条出院诊断
+                                if len(diagnosis_code) > 3 and re.findall('^D0[0-9]$',
+                                                                          diagnosis_code) and not first_flag:  # 第一条出院诊断
                                     sy0018_flag = True
 
                             # SY0019
                             if self.filter_dept('SY0019', data) and not sy0019_flag:
                                 if isinstance(diagnosis_code, str):
-                                    if 'M80' in diagnosis_code or re.findall('^[VWXY]', diagnosis_code) or re.findall('^M.*/.$', diagnosis_code):
+                                    if 'M80' in diagnosis_code or re.findall('^[VWXY]', diagnosis_code) or re.findall(
+                                            '^M.*/.$', diagnosis_code):
                                         sy0019_flag = True
 
                             # SY0020
@@ -5215,45 +5194,58 @@ class CheckMultiRecords(object):
 
                             # SY0041
                             if self.filter_dept('SY0041', data) and not sy0041_flag:
-                                if isinstance(diagnosis_code, str) and re.findall('^S0[1-6]$', diagnosis_code) and not first_flag:
-                                    if not (data.get('binganshouye', dict()).get('pat_visit', dict()).get('before_coma_time') and data.get('binganshouye', dict()).get('pat_visit', dict()).get('in_coma_time')):
+                                if isinstance(diagnosis_code, str) and re.findall('^S0[1-6]$',
+                                                                                  diagnosis_code) and not first_flag:
+                                    if not (data.get('binganshouye', dict()).get('pat_visit', dict()).get(
+                                            'before_coma_time') and data.get('binganshouye', dict()).get('pat_visit',
+                                                                                                         dict()).get(
+                                            'in_coma_time')):
                                         sy0041_flag = True
 
                             # SY0050
                             if self.filter_dept('SY0050', data) and not sy0050_flag:
                                 match_result = re.findall('P1[0-5]', diagnosis_code)
                                 if match_result:
-                                    admission_time = data.get(collection_name, dict()).get('pat_visit', dict()).get('admission_time', '')
-                                    date_of_birth = data.get(collection_name, dict()).get('pat_info', dict()).get('date_of_birth', '')
+                                    admission_time = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                        'admission_time', '')
+                                    date_of_birth = data.get(collection_name, dict()).get('pat_info', dict()).get(
+                                        'date_of_birth', '')
                                     if admission_time and date_of_birth:
-                                        age_baby = (datetime.strptime(admission_time, '%Y-%m-%d %H:%M:%S') - datetime.strptime(date_of_birth, '%Y-%m-%d %H:%M:%S')).days
+                                        age_baby = (datetime.strptime(admission_time,
+                                                                      '%Y-%m-%d %H:%M:%S') - datetime.strptime(
+                                            date_of_birth, '%Y-%m-%d %H:%M:%S')).days
                                         if age_baby >= 28:
                                             sy0050_flag = True
 
                             # SY0052
                             if self.filter_dept('SY0052', data) and not sy0052_flag:
-                                discharge_dept = data.get(collection_name, dict()).get('pat_visit', dict()).get('dept_discharge_from_name', '')
+                                discharge_dept = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                    'dept_discharge_from_name', '')
                                 if 'J40' in diagnosis_code and discharge_dept == '儿科':
                                     sy0052_flag = True
-                            
+
                             # SY0053
                             if self.filter_dept('SY0053', data) and not sy0053_flag:
-                                if isinstance(diagnosis_code, str) and re.findall('^(C7[7-9]|C80)$', diagnosis_code) and not first_flag:
+                                if isinstance(diagnosis_code, str) and re.findall('^(C7[7-9]|C80)$',
+                                                                                  diagnosis_code) and not first_flag:
                                     sy0053_flag = True
-                                    
+
                             # SY0054
                             if self.filter_dept('SY0054', data) and not sy0054_flag:
-                                if isinstance(diagnosis_code, str) and re.findall('^(C[0-6][0-9]|C7[0-6])$', diagnosis_code) and not first_flag:
+                                if isinstance(diagnosis_code, str) and re.findall('^(C[0-6][0-9]|C7[0-6])$',
+                                                                                  diagnosis_code) and not first_flag:
                                     sy0054_flag = True
 
                             # SY0055
                             if self.filter_dept('SY0055', data) and not sy0055_flag:
-                                if isinstance(diagnosis_code, str) and re.findall('^(D[1-2][0-9]|D3[0-6])$', diagnosis_code) and not first_flag:
+                                if isinstance(diagnosis_code, str) and re.findall('^(D[1-2][0-9]|D3[0-6])$',
+                                                                                  diagnosis_code) and not first_flag:
                                     sy0055_flag = True
 
                             # SY0056
                             if self.filter_dept('SY0056', data) and not sy0056_flag:
-                                if isinstance(diagnosis_code, str) and re.findall('^(D3[7-9]|D4[0-8])$', diagnosis_code) and not first_flag:
+                                if isinstance(diagnosis_code, str) and re.findall('^(D3[7-9]|D4[0-8])$',
+                                                                                  diagnosis_code) and not first_flag:
                                     sy0056_flag = True
 
                         # 第一条出院诊断已出现
@@ -5263,7 +5255,7 @@ class CheckMultiRecords(object):
                     if diagnosis_type_name == '病理诊断':
                         # SY0016, SY0017
                         binglizhenduan_content.add(diagnosis_name)
-                        
+
                         # SY0018
                         if not re.findall('^M.*/2$', diagnosis_code) and sy0018_flag:
                             sy0018_bingli = True
@@ -5275,11 +5267,11 @@ class CheckMultiRecords(object):
                         # SY0054
                         if not re.findall('^M.*/3$', diagnosis_code) and sy0054_flag:
                             sy0054_bingli = True
-                            
+
                         # SY0055
                         if not re.findall('^M.*/0$', diagnosis_code) and sy0055_flag:
                             sy0055_bingli = True
-                            
+
                         # SY0056
                         if not re.findall('^M.*/1$', diagnosis_code) and sy0056_flag:
                             sy0056_bingli = True
@@ -5300,27 +5292,32 @@ class CheckMultiRecords(object):
                         if self.filter_dept('SY0049', data) and not sy0049_flag:
                             match_result = re.findall('P1[0-5]', diagnosis_code)
                             if match_result:
-                                admission_time = data.get(collection_name, dict()).get('pat_visit', dict()).get('admission_time', '')
-                                date_of_birth = data.get(collection_name, dict()).get('pat_info', dict()).get('date_of_birth', '')
+                                admission_time = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                    'admission_time', '')
+                                date_of_birth = data.get(collection_name, dict()).get('pat_info', dict()).get(
+                                    'date_of_birth', '')
                                 if admission_time and date_of_birth:
-                                    age_baby = (datetime.strptime(admission_time, '%Y-%m-%d %H:%M:%S') - datetime.strptime(date_of_birth, '%Y-%m-%d %H:%M:%S')).days
+                                    age_baby = (datetime.strptime(admission_time,
+                                                                  '%Y-%m-%d %H:%M:%S') - datetime.strptime(
+                                        date_of_birth, '%Y-%m-%d %H:%M:%S')).days
                                     if age_baby >= 28:
                                         sy0049_flag = True
 
                         # SY0051
                         if self.filter_dept('SY0051', data) and not sy0051_flag:
-                            discharge_dept = data.get(collection_name, dict()).get('pat_visit', dict()).get('dept_discharge_from_name', '')
+                            discharge_dept = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                'dept_discharge_from_name', '')
                             if 'J40' in diagnosis_code and discharge_dept == '儿科':
                                 sy0051_flag = True
-                                        
-                if shouyezhenduan_diag and False:
+
+                if shouyezhenduan_diag:
                     diff_diag = ruyuanjilu_diag.difference(shouyezhenduan_diag)  # 入院诊断都在门急诊诊断中就可以
                     if diff_diag:
                         reason = '入院记录初步诊断不等于病案首页门急诊诊断'
                         error_info = {'code': 'SY0014',
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -5334,7 +5331,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0015',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5348,7 +5345,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0016',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5362,7 +5359,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0017',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5376,7 +5373,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0018',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5390,7 +5387,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0019',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5405,7 +5402,7 @@ class CheckMultiRecords(object):
                         error_info = {'code': 'SY0020',
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -5419,7 +5416,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0021',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5433,7 +5430,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0022',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5447,7 +5444,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0023',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5461,7 +5458,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0041',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5475,7 +5472,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0047',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5489,7 +5486,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0048',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5503,7 +5500,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0049',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5517,7 +5514,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0050',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5531,7 +5528,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0051',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5545,7 +5542,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0052',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5559,7 +5556,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0053',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5573,7 +5570,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0054',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5587,7 +5584,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0055',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5601,7 +5598,7 @@ class CheckMultiRecords(object):
                     error_info = {'code': 'SY0056',
                                   'num': num,
                                   'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                    error_info = self.supplement_error_info(error_info, '', '无文书时间', collection_name)
                     if 'score' in error_info:
                         patient_result['pat_info']['machine_score'] += error_info['score']
                     patient_result['pat_value'].append(error_info)
@@ -5611,8 +5608,8 @@ class CheckMultiRecords(object):
                     self.all_result[data['_id']] = patient_result
                     num += 1
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
     def check_info_binganshouye(self, collection_name, **json_file):
@@ -5637,11 +5634,12 @@ class CheckMultiRecords(object):
         SY0063: 病案首页--就诊信息--出ICU时间 ＞ 病案首页--就诊信息--出院时间 -->检出
         SY0064: 病案首页--就诊信息--ICU天数+CCU天数 不等于 病案首页--就诊信息--出ICU时间 - 入ICU时间  -->检出
         """
-        regular_code = ['SY0032', 'SY0033', 'SY0034', 'SY0035', 'SY0036', 'SY0037', 'SY0039', 'SY0042', 'SY0043', 'SWJL0000',
+        regular_code = ['SY0032', 'SY0033', 'SY0034', 'SY0035', 'SY0036', 'SY0037', 'SY0039', 'SY0042', 'SY0043',
+                        'SWJL0000',
                         'SY0059', 'SY0060', 'SY0061', 'SY0062', 'SY0063', 'SY0064']
         regular_boolean = list()
         for i in regular_code:
-            if self.regular_model.get(i, dict()).get('status') == '启用':
+            if self.filter_dept(i):
                 regular_boolean.append(False)
             else:
                 regular_boolean.append(True)
@@ -5656,14 +5654,18 @@ class CheckMultiRecords(object):
                 _, patient_result, num = self.get_patient_info(data, collection_name)
                 # 病案首页无文书时间及文书作者
                 # SY0032, SY0033, SY0035, SY0036  要获取年龄
-                if self.filter_dept('SY0032', data) or self.filter_dept('SY0033', data) or self.filter_dept('SY0035', data) or self.filter_dept('SY0036', data):
+                if self.filter_dept('SY0032', data) or self.filter_dept('SY0033', data) or self.filter_dept('SY0035',
+                                                                                                            data) or self.filter_dept(
+                        'SY0036', data):
                     age_unit = data.get(collection_name, dict()).get('pat_visit', dict()).get('age_value_unit')
                     if age_unit == '岁':
                         age = data.get(collection_name, dict()).get('pat_visit', dict()).get('age_value')
                         try:
                             age = float(age)
                         except:
-                            self.logger.info('\n病案首页年龄问题:\n\tid: {0}\n\tage: {1}\n'.format(data['_id'], age))
+                            logger.info('\n病案首页年龄问题:\n\tid: {0}\n\tage: {1}\n'.
+                                        format(data['_id'],
+                                               age))
                             age = 'error_age'
                         if age != 'error_age':
                             # SY0032
@@ -5673,7 +5675,9 @@ class CheckMultiRecords(object):
                                               'num': num,
                                               'age': '{}{}'.format(age, age_unit),
                                               'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                                last_modify_date_time = '无文书时间'
+                                error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                        collection_name)
                                 if 'score' in error_info:
                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                 patient_result['pat_value'].append(error_info)
@@ -5689,7 +5693,9 @@ class CheckMultiRecords(object):
                                               'num': num,
                                               'age': '{}{}'.format(age, age_unit),
                                               'reason': reason}
-                                error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                                last_modify_date_time = '无文书时间'
+                                error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                        collection_name)
                                 if 'score' in error_info:
                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                 patient_result['pat_value'].append(error_info)
@@ -5701,7 +5707,8 @@ class CheckMultiRecords(object):
                             # SY0035
                             if self.filter_dept('SY0035', data):
                                 sex_name = data.get(collection_name, dict()).get('pat_info', dict()).get('sex_name', '')
-                                marital_status_name = data.get(collection_name, dict()).get('pat_visit', dict()).get('marital_status_name', '')
+                                marital_status_name = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                    'marital_status_name', '')
                                 if marital_status_name == '已婚':
                                     if (sex_name == '男' and age < 22) or (sex_name == '女' and age < 20):
                                         reason = '患者年龄与婚姻状态不相符'
@@ -5711,7 +5718,9 @@ class CheckMultiRecords(object):
                                                       'sex_name': sex_name,
                                                       'marital_status': marital_status_name,
                                                       'reason': reason}
-                                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                                        last_modify_date_time = '无文书时间'
+                                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                                collection_name)
                                         if 'score' in error_info:
                                             patient_result['pat_info']['machine_score'] += error_info['score']
                                         patient_result['pat_value'].append(error_info)
@@ -5723,13 +5732,15 @@ class CheckMultiRecords(object):
                             # SY0036
                             if self.filter_dept('SY0036', data):
                                 if 6 < age < 14:
-                                    occupation_name = data.get(collection_name, dict()).get('pat_visit', dict()).get('occupation_name', '')
+                                    occupation_name = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                                        'occupation_name', '')
                                     if occupation_name and occupation_name != '学生':
                                         personal_his = dict()
                                         if data.get('ruyuanjilu', list()):
                                             personal_his = data['ruyuanjilu'][0]
                                         if personal_his:
-                                            current_occupation = personal_his.get('ruyuanjilu', dict()).get('social_history', dict()).get('current_occupation', '')
+                                            current_occupation = personal_his.get('ruyuanjilu', dict()).get(
+                                                'social_history', dict()).get('current_occupation', '')
                                             if current_occupation != occupation_name:
                                                 reason = '病案首页职业信息与入院记录个人史职业信息不相符'
                                                 error_info = {'code': 'SY0036',
@@ -5738,7 +5749,10 @@ class CheckMultiRecords(object):
                                                               'occupation_name': occupation_name,
                                                               'current_occupation': current_occupation,
                                                               'reason': reason}
-                                                error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                                                last_modify_date_time = '无文书时间'
+                                                error_info = self.supplement_error_info(error_info, '',
+                                                                                        last_modify_date_time,
+                                                                                        collection_name)
                                                 if 'score' in error_info:
                                                     patient_result['pat_info']['machine_score'] += error_info['score']
                                                 patient_result['pat_value'].append(error_info)
@@ -5749,9 +5763,11 @@ class CheckMultiRecords(object):
                                                 num += 1
                 # SY0034
                 if self.filter_dept('SY0034', data):
-                    relationship = data.get(collection_name, dict()).get('pat_visit', dict()).get('relationship_name', '')
+                    relationship = data.get(collection_name, dict()).get('pat_visit', dict()).get('relationship_name',
+                                                                                                  '')
                     if relationship == '夫妻':
-                        marital_status_name = data.get(collection_name, dict()).get('pat_visit', dict()).get('marital_status_name', '')
+                        marital_status_name = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                            'marital_status_name', '')
                         if marital_status_name == '未婚':
                             reason = '联系与患者关系为夫妻，婚姻状态为未婚'
                             error_info = {'code': 'SY0034',
@@ -5759,7 +5775,9 @@ class CheckMultiRecords(object):
                                           'relationship': relationship,
                                           'marital_status': marital_status_name,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5780,7 +5798,9 @@ class CheckMultiRecords(object):
                             error_info = {'code': 'SY0037',
                                           'num': num,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5798,7 +5818,8 @@ class CheckMultiRecords(object):
                                       'num': num,
                                       'postcode': postcode,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        last_modify_date_time = '无文书时间'
+                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -5815,7 +5836,9 @@ class CheckMultiRecords(object):
                             error_info = {'code': 'SY0043',
                                           'num': num,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5827,7 +5850,8 @@ class CheckMultiRecords(object):
                 # SY0042
                 if self.filter_dept('SY0042', data):
                     flag = False
-                    discharge_class_name = data.get(collection_name, dict()).get('pat_visit', dict()).get('discharge_class_name', '')
+                    discharge_class_name = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                        'discharge_class_name', '')
                     if discharge_class_name != '医嘱离院':
                         if data.get('yizhu', list()):
                             yizhu_data = data['yizhu'][0]
@@ -5844,7 +5868,8 @@ class CheckMultiRecords(object):
                         error_info = {'code': 'SY0042',
                                       'num': num,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        last_modify_date_time = '无文书时间'
+                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -5855,7 +5880,8 @@ class CheckMultiRecords(object):
                         num += 1
                 # SWJL0000
                 if self.filter_dept('SWJL0000', data):
-                    discharge_class_name = data.get(collection_name, dict()).get('pat_visit', dict()).get('discharge_class_name', '')
+                    discharge_class_name = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                        'discharge_class_name', '')
                     if discharge_class_name == '死亡':
                         if data.get('siwangjilu', list()):
                             siwang_res = True
@@ -5866,7 +5892,9 @@ class CheckMultiRecords(object):
                             error_info = {'code': 'SWJL0000',
                                           'num': num,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5891,7 +5919,8 @@ class CheckMultiRecords(object):
                 else:
                     ccu_days = float(v[0])
 
-                spec_level_nurs_days = data.get(collection_name, dict()).get('pat_visit', dict()).get('spec_level_nurs_days', '')
+                spec_level_nurs_days = data.get(collection_name, dict()).get('pat_visit', dict()).get(
+                    'spec_level_nurs_days', '')
                 v = re.findall('[\d]+\.?[\d]*', spec_level_nurs_days)
                 if not v:
                     spec_level_nurs_days = 0
@@ -5909,7 +5938,8 @@ class CheckMultiRecords(object):
                                       'ccu_days': ccu_days,
                                       'spec_level_nurs_days': spec_level_nurs_days,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        last_modify_date_time = '无文书时间'
+                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -5928,7 +5958,9 @@ class CheckMultiRecords(object):
                                           'icu_in_date': icu_in_date,
                                           'admission_time': admission_time,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5945,7 +5977,9 @@ class CheckMultiRecords(object):
                                           'icu_in_date': icu_in_date,
                                           'discharge_time': discharge_time,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5963,7 +5997,9 @@ class CheckMultiRecords(object):
                                           'icu_out_date': icu_out_date,
                                           'icu_in_date': icu_in_date,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5980,7 +6016,9 @@ class CheckMultiRecords(object):
                                           'icu_out_date': icu_out_date,
                                           'discharge_time': discharge_time,
                                           'reason': reason}
-                            error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                            last_modify_date_time = '无文书时间'
+                            error_info = self.supplement_error_info(error_info, '', last_modify_date_time,
+                                                                    collection_name)
                             if 'score' in error_info:
                                 patient_result['pat_info']['machine_score'] += error_info['score']
                             patient_result['pat_value'].append(error_info)
@@ -5990,7 +6028,8 @@ class CheckMultiRecords(object):
                             self.all_result[data['_id']] = patient_result
                             num += 1
                 if icu_in_date and icu_out_date and flag and self.filter_dept('SY0064', data):
-                    delta_time = (datetime.strptime(icu_out_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(icu_in_date, '%Y-%m-%d %H:%M:%S')).days
+                    delta_time = (datetime.strptime(icu_out_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(icu_in_date,
+                                                                                                           '%Y-%m-%d %H:%M:%S')).days
                     if icu_days + ccu_days - delta_time > 1:
                         reason = '重症监护天数与重症监护进出明细不相符'
                         error_info = {'code': 'SY0064',
@@ -6000,7 +6039,8 @@ class CheckMultiRecords(object):
                                       'icu_out_date': icu_out_date,
                                       'icu_in_date': icu_in_date,
                                       'reason': reason}
-                        error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
+                        last_modify_date_time = '无文书时间'
+                        error_info = self.supplement_error_info(error_info, '', last_modify_date_time, collection_name)
                         if 'score' in error_info:
                             patient_result['pat_info']['machine_score'] += error_info['score']
                         patient_result['pat_value'].append(error_info)
@@ -6010,45 +6050,8 @@ class CheckMultiRecords(object):
                         self.all_result[data['_id']] = patient_result
                         num += 1
             except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
-        return self.all_result
-
-    def check_gender_chanke(self, collection_name, **json_file):
-        """
-        collection = binganshouye
-        性别 == '男' 检出，专科标识为产科
-        SY0002
-        """
-        if json_file and self.filter_dept('SY0002', json_file):
-            mongo_result = [json_file]
-        else:
-            return self.all_result
-        for data in mongo_result:
-            try:
-                _, patient_result, num = self.get_patient_info(data, collection_name)
-                sex_name = data.get(collection_name, dict()).get('pat_info', dict()).get('sex_name', '')
-                person_name = data.get(collection_name, dict()).get('pat_info', dict()).get('person_name', '')
-                if self.conf_dict['check_past_guominshi']['儿科'].findall(person_name):
-                    continue
-                if not sex_name:
-                    continue
-                if sex_name == '男':
-                    reason = '病案首页病人信息性别有误'
-                    error_info = {'code': 'SY0002',
-                                  'num': num,
-                                  'reason': reason}
-                    error_info = self.supplementErrorInfo(error_info=error_info, collection_name=collection_name)
-                    if 'score' in error_info:
-                        patient_result['pat_info']['machine_score'] += error_info['score']
-                    patient_result['pat_value'].append(error_info)
-                    patient_result['pat_info'].setdefault('html', list())
-                    if collection_name not in patient_result['pat_info']['html']:
-                        patient_result['pat_info']['html'].append(collection_name)
-                    self.all_result[data['_id']] = patient_result
-            except:
-                self.logger_error.error(data['_id'])
-                self.logger_error.error(traceback.format_exc())
+                logger_error.error(data['_id'])
+                logger_error.error(traceback.format_exc())
         return self.all_result
 
 

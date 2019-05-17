@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: permissionUrls.py
-@time: 18-10-26 下午3:16
-@description: 权限接口地址页
-"""
+# 权限接口地址页
+
 from django.conf.urls import url
 
 from . import permissionViews

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: runtime_class_method.py
-@time: 18-10-29 上午11:20
-@description: 装饰器函数
-"""
+# 装饰器函数
+
 import os
 import sys
 import json
@@ -25,11 +18,17 @@ from Utils.LogUtils import LogUtils
 
 
 def run_time(func):
+    """统计函数执行时间"""
     @wraps(func)
+    # def wrapper(*args, **kwargs):
+    # 此处没有使用到类，如果在函数内加上 self 参数的话，相当于函数必须要至少传一个参数
+    # 但是调用的函数是不需要传递参数的，并且 self 是类里面的函数自带的一个参数，所以这里需要把 self 参数去掉
     def wrapper(self, *args, **kwargs):
         start_time = datetime.now()
         print('{0}, {1} start...'.format(start_time, func.__name__))
         try:
+            # 这里需要把 self 参数去掉，理由同上
+            # r = func(*args, **kwargs)
             r = func(self, *args, **kwargs)
         except:
             r = kwargs
@@ -45,7 +44,7 @@ def run_time(func):
 
 def views_log(func):
     """
-    视图函数装饰器
+    视图函数装饰器，捕捉程序异常
     """
     @wraps(func)
     def wrapper(*args, **kwargs):

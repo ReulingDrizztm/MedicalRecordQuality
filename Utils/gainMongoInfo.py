@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: gainMongoInfo.py
-@time: 18-7-16 上午11:20
-@description: 
-"""
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))
@@ -63,10 +54,6 @@ class GainMongoInfo(object):
         根据时间的字符串，将时间转换为数值型
         返回 tuple, 若没有单位则返回长度为1的 tuple
         """
-        re_filter = self.conf_dict['load_time']
-        for i in re_filter:
-            if i[0].findall(time_str):
-                return i[1]
         ymd_pat = re.compile('\d{4}[/\-年.]\d{0,2}[/\-月.]?\d{0,2}日?')  # 先看是不是具体日期
         ymd_pat_2 = re.compile('\d{2}[/\-年.]\d{1,2}[/\-月.]\d{0,2}日?')  # 有日期为 13-01-19
         ymd_pat_3 = re.compile('\d{1,2}(?:月)\d{1,2}日?')  # 2月28日
@@ -1468,6 +1455,6 @@ if __name__ == '__main__':
     app = GainMongoInfo()
     # r = app.gain_statistics_info('2017-04', '2017-05')
     t1 = datetime.now()
-    r = app._load_time('今晨')
+    r = app._load_time('0年前')
     print((datetime.now()-t1).total_seconds())
     # print(json.dumps(r, ensure_ascii=False, indent=2))

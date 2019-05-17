@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: loadSynonym.py
-@time: 18-7-3 下午6:10
-@description: 
-"""
 import os
 
 

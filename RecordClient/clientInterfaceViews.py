@@ -15,6 +15,11 @@ else:
 
 @views_log
 def processJsonFile(request):
+    """
+    获取医生的姓名和 id
+    :param request:
+    :return:
+    """
     logger_seg = LogUtils().getLogger('segment')
     logger = LogUtils().getLogger('backend')
     app = ClientInterface()
@@ -56,6 +61,7 @@ def processJsonFile(request):
 
 @views_log
 def processJsonFileBingan(request):
+    # 获取病案首页文本
     logger_seg = LogUtils().getLogger('segment')
     app = ClientInterface()
     if request.method == 'POST':
@@ -86,6 +92,7 @@ def processJsonFileBingan(request):
 
 @views_log
 def doctorControlStats(request):
+    # 获取同比表格页数据
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -119,6 +126,7 @@ def doctorControlStats(request):
 
 @views_log
 def chooseRecordName(request):
+    # 配置文件中运行的规则所选文书名称
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -146,6 +154,7 @@ def chooseRecordName(request):
 
 @views_log
 def recordModifySort(request):
+    # 文书问题修改频次排行
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -173,6 +182,7 @@ def recordModifySort(request):
 
 @views_log
 def freqHeatMap(request):
+    # 热度图数据
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -202,6 +212,7 @@ def freqHeatMap(request):
 
 @views_log
 def regularModifySort(request):
+    # 规则修改排行
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -239,6 +250,7 @@ def regularModifySort(request):
 
 @views_log
 def getPatientInfo(request):
+    # 环节质控 只展示最后一次有问题的
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -288,6 +300,7 @@ def getPatientInfo(request):
 
 @views_log
 def statisticDept(request):
+    # 统计各个科室问题病历数
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -317,6 +330,7 @@ def statisticDept(request):
 
 @views_log
 def getDoctorInfo(request):
+    # 获取医生的详细信息
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -342,6 +356,7 @@ def getDoctorInfo(request):
 
 @views_log
 def getClickCount(request):
+    # 点击内容计数
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -356,7 +371,8 @@ def getClickCount(request):
             patient_id = data.get('patient_id', '')
             visit_id = data.get('visit_id', '')
 
-            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name, doctor_id=doctor_id)
+            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                       doctor_id=doctor_id)
             return HttpResponse(json.dumps(result))
         elif request.content_type == 'multipart/form-data':
 
@@ -365,7 +381,8 @@ def getClickCount(request):
             patient_id = request.POST.get('patient_id', '')
             visit_id = request.POST.get('visit_id', '')
 
-            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name, doctor_id=doctor_id)
+            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                       doctor_id=doctor_id)
             return HttpResponse(json.dumps(result))
         else:
             return HttpResponse(json.dumps({}))
@@ -373,6 +390,7 @@ def getClickCount(request):
 
 @views_log
 def getClickCountIcon(request):
+    # 点击图标计数
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -387,7 +405,8 @@ def getClickCountIcon(request):
             patient_id = data.get('patient_id', '')
             visit_id = data.get('visit_id', '')
 
-            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name, doctor_id=doctor_id, loc=True)
+            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                       doctor_id=doctor_id, loc=True)
             return HttpResponse(json.dumps(result))
         elif request.content_type == 'multipart/form-data':
 
@@ -396,7 +415,52 @@ def getClickCountIcon(request):
             patient_id = request.POST.get('patient_id', '')
             visit_id = request.POST.get('visit_id', '')
 
-            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name, doctor_id=doctor_id, loc=True)
+            result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                       doctor_id=doctor_id, loc=True)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
+@views_log
+def get_click_count_icon(request, flag=True):
+    # 点击计数
+    app = ClientInterface()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            data = request.body
+            data = data.decode('utf-8')
+            if not data:
+                data = '{}'
+            data = json.loads(data)
+
+            doctor_id = data.get('doctor_id', '')
+            doctor_name = data.get('doctor_name', '')
+            patient_id = data.get('patient_id', '')
+            visit_id = data.get('visit_id', '')
+            if flag:
+                # 有传递 flag 参数，表示是在点击图标
+                result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                           doctor_id=doctor_id, loc=True)
+            else:
+                # 没有 flag 参数或者 flag 的值为 False，表示点击的是内容
+                result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                           doctor_id=doctor_id)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+
+            doctor_id = request.POST.get('doctor_id', '')
+            doctor_name = request.POST.get('doctor_name', '')
+            patient_id = request.POST.get('patient_id', '')
+            visit_id = request.POST.get('visit_id', '')
+            if flag:
+                # 有传递 flag 参数，表示是在点击图标
+                result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                           doctor_id=doctor_id, loc=True)
+            else:
+                # 没有 flag 参数或者 flag 的值为 False，表示点击的是内容
+                result = app.getClickCount(patient_id=patient_id, visit_id=visit_id, doctor_name=doctor_name,
+                                           doctor_id=doctor_id)
             return HttpResponse(json.dumps(result))
         else:
             return HttpResponse(json.dumps({}))
@@ -404,6 +468,7 @@ def getClickCountIcon(request):
 
 @views_log
 def doctorWorkStat(request):
+    # 获取医生工作列表
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -433,6 +498,7 @@ def doctorWorkStat(request):
 
 @views_log
 def doctorModifySort(request):
+    # 查看病区下有哪些医生，对医生规则修改情况进行统计
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -462,6 +528,7 @@ def doctorModifySort(request):
 
 @views_log
 def allDistrict(request):
+    # 始终返回所有科室，输入科室返回该科室病区
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -487,6 +554,7 @@ def allDistrict(request):
 
 @views_log
 def showJsonFile(request):
+    # 环节列表展示原始数据
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -514,6 +582,7 @@ def showJsonFile(request):
 
 @views_log
 def problemNameAndCode(request):
+    # 与既往质控和终末质控中的问题分类类似，获取文书列表和问题分类列表
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -541,6 +610,7 @@ def problemNameAndCode(request):
 
 @views_log
 def doctorRank(request):
+    # 获取医生病历数、问题病历数、排名、易犯问题排名、较上月情况比较等数据
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -568,6 +638,11 @@ def doctorRank(request):
 
 @views_log
 def demoData(request):
+    """
+    生成示例病历文档
+    :param request:
+    :return:
+    """
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':
@@ -584,6 +659,7 @@ def demoData(request):
 
 @views_log
 def runDemo(request):
+    # 运行随机病历，获取执行结果
     app = ClientInterface()
     if request.method == 'POST':
         if request.content_type == 'text/plain':

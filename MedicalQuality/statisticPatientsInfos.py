@@ -1,18 +1,9 @@
 #!/usr/bin/env python
 # encoding=utf-8
 
-"""
-@version: v1.0
-@author:
-@contact:
-@software: PyCharm
-@file: statisticPatientsInfos.py
-@time: 23/07/18 上午 10:49
-@description: 
-"""
-
 import os
 import sys
+
 cur_path = os.path.abspath(os.path.dirname(__file__))
 root_path = os.path.split(cur_path)[0]
 sys.path.append(root_path)  # 项目路径添加到系统路径
@@ -33,6 +24,7 @@ class StatisticPatientInfos(object):
     """
     统计患者的基本信息方法
     """
+
     def __init__(self, debug=False):
         self.debug = debug
         self.mongo_pull_utils = PullDataFromMDBUtils()
@@ -52,12 +44,14 @@ class StatisticPatientInfos(object):
 
     @staticmethod
     def this_month():
+        # 获取当月的开始时间（x年x月格式），当前时间（x年x月x日 x时x分x秒格式）
         start = datetime.now().strftime('%Y-%m')
         end = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         return start, end
 
     @staticmethod
     def last_month():
+        # 获取上月月份和当月月份
         start_time = datetime.now()
         month = start_time.month - 1 if start_time.month > 1 else 12
         last_year = start_time.year - 1 if month == 12 else start_time.year
@@ -67,6 +61,7 @@ class StatisticPatientInfos(object):
 
     @staticmethod
     def last_two_month():
+        # 获取上上月月份和上月月份
         start_time = datetime.now()
         last_two_month = 10 + start_time.month if start_time.month < 3 else start_time.month - 2
         last_two_year = start_time.year if last_two_month < 11 else start_time.year - 1
@@ -78,6 +73,7 @@ class StatisticPatientInfos(object):
 
     @staticmethod
     def last_tri_month():
+        # 获取上上上月月份和上上月月份
         start_time = datetime.now()
         last_two_month = 10 + start_time.month if start_time.month < 3 else start_time.month - 2
         last_two_year = start_time.year if last_two_month < 11 else start_time.year - 1
@@ -90,27 +86,18 @@ class StatisticPatientInfos(object):
     @staticmethod
     def transformMongoResult(query_result):
         """
-        将mongo查询结果进行格式转化，转化为dict
+        将mongo查询结果进行格式转化，转化为dict    ----> result 为 list 类型？？？
         """
         result = []
         for data_index, data_value in enumerate(query_result):
-            del_code = [value['code'] for value in data_value.get('del_value', list()) if 'code' in value]
-            new_pat_value = list()
+            data_value['problem_num'] = len(data_value.get('content', list())) + len(
+                data_value.get('pat_value', list()))  # 统计问题条数
+            result.append(data_value)
             for pat_value in data_value.get('pat_value', list()):
-                if pat_value.get('code', '') in del_code:
-                    continue
-                new_pat_value.append(pat_value)
                 if '--' in pat_value.get('path', ''):
                     pat_value['html_chinese'] = pat_value.get('path', '').split('--')[0]
                 else:
                     pat_value['html_chinese'] = pat_value.get('path', '')
-            data_value['pat_value'] = new_pat_value
-            data_value['problem_num'] = len(data_value.get('content', list())) + len(new_pat_value)
-            if data_value.get('transmit_code'):
-                data_value['transmit_flag'] = True
-            else:
-                data_value['transmit_flag'] = False
-            result.append(data_value)
         return result
 
     def statisticDept(self, dept_name='all', start_date='', end_date='', last_month=''):
@@ -162,7 +149,10 @@ class StatisticPatientInfos(object):
         result.insert(0, {'name': '全部', 'value': total})
         return result
 
-    def findPatientByStatusJiwang(self, status_bool='all', dept_name='all', show_num=10, page_num=0, patient_id='', regular_details='', code='', record='', start_date='', end_date='', category='', isResult=False):
+    def findPatientByStatusJiwang(self, status_bool='all', dept_name='all', show_num=10, page_num=0, patient_id='',
+                                  regular_details='', code='', record='', start_date='', end_date='', category='',
+                                  isResult=False):
+        # category 的值为：shuxue， shoushu, siwang 中的一个。
         """
         既往数据查询
         """
@@ -170,26 +160,26 @@ class StatisticPatientInfos(object):
         query_field = dict()
         result['page_num'] = page_num
         result['show_num'] = show_num
+
+        # 获取3个月前的月份值
         start_time = datetime.now()
         start_month = 9 + start_time.month if start_time.month < 4 else start_time.month - 3
+
         month_tab = '{}月'.format(start_month)
         result['month'] = [month_tab]
         # 获取全部分类的患者信息
         if isResult != 'all':
             if isResult:
                 # 是问题病历
-                query_field['$or'] = [{'pat_info.machine_score': {'$ne': 0}}, {'pat_info.artificial_score': {'$ne': 0}}]
+                query_field['pat_value.code'] = {'$exists': True}
             else:
                 # 不是问题病历
-                query_field['pat_info.machine_score'] = 0
-                query_field['pat_info.artificial_score'] = 0
+                query_field['pat_value.code'] = {'$exists': False}
         if status_bool == 'all':
             status_bool = {'$in': [True, False]}
         elif status_bool == 'zero':
             status_bool = True
-            query_field['del_value'] = {'$size': {'$ne': 0}}
-            query_field['pat_info.machine_score'] = 0
-            query_field['pat_info.artificial_score'] = 0
+            query_field['pat_value'] = {'$size': 0}
         query_field['status'] = status_bool
         if dept_name and 'all' != dept_name:
             query_field['pat_info.dept_discharge_from_name'] = dept_name
@@ -224,37 +214,39 @@ class StatisticPatientInfos(object):
         if category and category != 'all':
             query_field['pat_category.{}'.format(category)] = True
         conn = self.mongo_pull_utils.connection()
-        query_result = conn.find(query_field).sort([('pat_info.discharge_time', 1)]).skip(page_num*show_num).limit(show_num)
+        query_result = conn.find(query_field).sort([('pat_info.discharge_time', 1)]).skip(page_num * show_num).limit(
+            show_num)
         query_count = conn.find(query_field).count()
         result['num'] = query_count
         result['info'] = self.transformMongoResult(query_result)
         return result
 
-    def findPatientByStatus(self, status_bool='all', dept_name='all', show_num=10, page_num=0, patient_id='', regular_details='', code='', record='', start_date='', end_date='', category='', isResult=False, last_month='0'):
+    def findPatientByStatus(self, status_bool='all', dept_name='all', show_num=10, page_num=0, patient_id='',
+                            regular_details='', code='', record='', start_date='', end_date='', category='',
+                            isResult=False, last_month='0'):
         """
-        终末质控数据查询
+        既往/终末质控数据查询
         last_month: '0':本月, '1': 上月, '2': 上上月, '3': 既往
         """
         result = dict()
         query_field = dict()
         if last_month == '3':
-            return self.findPatientByStatusJiwang(status_bool, dept_name, show_num, page_num, patient_id, regular_details, code, record, start_date, end_date, category, isResult)
+            return self.findPatientByStatusJiwang(status_bool, dept_name, show_num, page_num, patient_id,
+                                                  regular_details, code, record, start_date, end_date, category,
+                                                  isResult)
         # 获取全部分类的患者信息
         if isResult != 'all':
             if isResult:
                 # 是问题病历
-                query_field['$or'] = [{'pat_info.machine_score': {'$ne': 0}}, {'pat_info.artificial_score': {'$ne': 0}}]
+                query_field['pat_value.code'] = {'$exists': True}
             else:
                 # 不是问题病历
-                query_field['pat_info.machine_score'] = 0
-                query_field['pat_info.artificial_score'] = 0
+                query_field['pat_value.code'] = {'$exists': False}
         if status_bool == 'all':
             status_bool = {'$in': [True, False]}
         elif status_bool == 'zero':
             status_bool = True
-            query_field['del_value'] = {'$size': {'$ne': 0}}
-            query_field['pat_info.machine_score'] = 0
-            query_field['pat_info.artificial_score'] = 0
+            query_field['pat_value'] = {'$size': 0}
         query_field['status'] = status_bool
         if dept_name and 'all' != dept_name:
             query_field['pat_info.dept_discharge_from_name'] = dept_name
@@ -275,7 +267,7 @@ class StatisticPatientInfos(object):
             except:
                 page_num = 0
         if record:
-            query_field['pat_value.record_name'] = record
+            query_field['pat_value.path'] = {'$regex': record}
 
         start_time = datetime.now()
         last_two_month = 10 + start_time.month if start_time.month < 3 else start_time.month - 2
@@ -305,16 +297,24 @@ class StatisticPatientInfos(object):
             return result
         if category and category != 'all':
             query_field['pat_category.{}'.format(category)] = True
-        query_result = conn.find(query_field).sort([('pat_info.discharge_time', 1), ('_id', 1)]).skip(page_num*show_num).limit(show_num)
+        query_result = conn.find(query_field).sort([('pat_info.discharge_time', 1), ('_id', 1)]).skip(
+            page_num * show_num).limit(show_num)
         query_count = conn.find(query_field).count()
         result['num'] = query_count
         result['info'] = self.transformMongoResult(query_result)
         return result
 
     def getPatientHtmlList(self, data_id):
+        """获取电子病历文档列表
+        shouyezhenduan：首页诊断
+        shouyeshoushu：首页手术
+        hulitizhengyangli：
+        """
         id_tmp = data_id.split('#')[:3]
         patient_id, visit_id = id_tmp[0], id_tmp[1]
-        result = OrderedDict()
+        result = OrderedDict()  # 对字典中的元素进行排序
+
+        # 根据 patient_id, visit_id 去 ES 接口中查询数据
         es_result = self.app_es.getPatientRecordList(patient_id, visit_id)
         if not es_result.get('res_flag'):
             result.update(es_result)
@@ -328,8 +328,9 @@ class StatisticPatientInfos(object):
         return result
 
     def findPatientHtml(self, data_id, record_name='', mongo=False):
+        """终末质控详情页面 -- 分项详细栏"""
         id_tmp = data_id.split('#')[:3]
-        search_id = '#'.join([id_tmp[2]]+id_tmp[0:2])
+        search_id = '#'.join([id_tmp[2]] + id_tmp[0:2])
         query_field = {'_id': search_id}
         patient_id, visit_id = id_tmp[0], id_tmp[1]
         result = dict()
@@ -337,7 +338,9 @@ class StatisticPatientInfos(object):
         result['time_cost']['mongo'] = 0
         result['time_cost']['es'] = 0
         result['error_info'] = list()
-        result['regular_name'] = list(set([regular_name['regular_classify'] for regular_name in self.regular_model.values() if regular_name.get('regular_classify')]))
+        result['regular_name'] = list(set(
+            [regular_name['regular_classify'] for regular_name in self.regular_model.values() if
+             regular_name.get('regular_classify')]))
         result['html'] = OrderedDict()
         if not (record_name and record_name in self.conf_dict['html_english_chinese']):
             return result
@@ -347,20 +350,24 @@ class StatisticPatientInfos(object):
         if record_name == 'binganshouye':  # 单独处理病案首页
             if mongo:
                 start_time = time.time()
+
+                # 创建数据库查询链接
                 conn = self.mongo_pull_utils.record_db.get_collection(name=record_name)
                 conn_shouyeshoushu = self.mongo_pull_utils.record_db.get_collection(name='shouyeshoushu')
                 conn_shouyezhenduan = self.mongo_pull_utils.record_db.get_collection(name='shouyezhenduan')
+                # 查询数据
                 query_result = conn.find_one(query_field) or dict()
                 result_shouyeshoushu = conn_shouyeshoushu.find_one(query_field) or dict()
                 result_shouyezhenduan = conn_shouyezhenduan.find_one(query_field) or dict()
                 result['time_cost']['mongo'] += time.time() - start_time
-            else:
+            else:  # mongo == False
                 start_time = time.time()
                 conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                                collection_name='binganshouye')
                 query_result = conn.find_one(query_field, {}) or dict()
                 result['time_cost']['mongo'] += time.time() - start_time
                 if query_result:
+                    # 从 MongoDB 质控库中获取到了数据走此流程
                     start_time = time.time()
                     conn_shouyeshoushu = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                                                  collection_name='shouyeshoushu')
@@ -370,7 +377,9 @@ class StatisticPatientInfos(object):
                     result_shouyeshoushu = conn_shouyeshoushu.find_one(query_field) or dict()
                     result_shouyezhenduan = conn_shouyezhenduan.find_one(query_field) or dict()
                     result['time_cost']['mongo'] += time.time() - start_time
+                    # 先做逻辑运算，然后再做赋值运算
                 else:
+                    # 没有从 MongoDB 中获取到数据，则直接到 ES 中去获取数据
                     start_time = time.time()
                     query_result = self.app_es.getRecordQuickly(patient_id, visit_id, record_name)
                     if not query_result.get('res_flag'):
@@ -392,16 +401,22 @@ class StatisticPatientInfos(object):
                 if one_record.get('diagnosis_type_name') != '病理诊断':
                     binganshouye['shouyezhenduan'].append(one_record)
             result['html'][self.conf_dict['html_english_chinese'][record_name]] = [binganshouye]
-        else:
+        else:  # record_name != 'binganshouye'
             if mongo:
                 start_time = time.time()
+                """
+                yizhu: 医嘱
+                jianchabaogao: 检查报告
+                jianyanbaogao: 检验报告
+                """
                 if record_name in ['yizhu', 'jianchabaogao', 'jianyanbaogao']:
                     collection = self.mongo_pull_utils.record_db.get_collection(name=record_name)
                     query_result = collection.find_one(query_field) or dict()
                 else:
                     collection_src_name = record_name + '_src'
                     collection = self.mongo_pull_utils.record_db.get_collection(name=collection_src_name)
-                    query_result = collection.find_one(query_field) or dict()
+                    show_field = {record_name + '.MR_CONTENT_HTML': 1, record_name + '.LAST_MODIFY_DATE_TIME': 1}
+                    query_result = collection.find_one(query_field, show_field) or dict()
                 result['time_cost']['mongo'] += time.time() - start_time
             else:
                 start_time = time.time()
@@ -411,7 +426,7 @@ class StatisticPatientInfos(object):
                     query_result = conn.find_one(query_field, {}) or dict()
                 else:
                     conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
-                                                                   collection_name=record_name+'_src')
+                                                                   collection_name=record_name + '_src')
                     query_result = conn.find_one(query_field, {}) or dict()
                 result['time_cost']['mongo'] += time.time() - start_time
                 # 质控库中没有原文则在es中查找
@@ -475,6 +490,12 @@ class StatisticPatientInfos(object):
             if not item_name:
                 continue
             result.setdefault(class_name, list())
+            """
+            dict.setdefault(key, default=None)
+            key -- 查找的键值。
+            default -- 键不存在时，设置的默认键值。
+            如果字典中包含有给定键，则返回该键对应的值，否则返回为该键设置的值。
+            """
             result[class_name].append({
                 'order_item_name': item_name,
                 'order_class_name': one_data.get('order_class_name', ''),
@@ -490,7 +511,10 @@ class StatisticPatientInfos(object):
                 'discharge_medicine_indicator': one_data.get('discharge_medicine_indicator', ''),
             })
         result = dict(sorted(result.items(), key=lambda x: len(x[1]), reverse=True))
+        # 对字典按照键进行排序
+
         for k, v in result.items():
+            # 字典嵌套字典，对嵌套中的字典进行排序
             v.sort(key=lambda x: x['order_begin_time'])
         return result
 
@@ -560,7 +584,7 @@ class StatisticPatientInfos(object):
         last_month: 0：终末，本月；1：终末，上月；2：终末，上上月，3：既往
         """
         collection = self.mongo_push_utils.connectCollection(database_name=self.database_name,
-                                                             collection_name=self.collection_name+'_zhongmo')
+                                                             collection_name=self.collection_name + '_zhongmo')
         collection_name = ''  # 不存在时，collection连接既往库，存在时，连接终末库
         if last_month == '0':
             collection_name = self.collection_name + '_this_month'
@@ -575,38 +599,35 @@ class StatisticPatientInfos(object):
         if not data:
             return False
         if delete_list:
-            pat_value = data['pat_value']
+            pat_value = list()
             del_value = data.get('del_value', list())
-            for one_pat_value in pat_value:
-                n = str(one_pat_value.get('num', 0))
-                if n in delete_list:
-                    one_pat_value['del_reason'] = delete_list.get(n, dict())
-                    one_pat_value['del_batchno'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-                    one_pat_value['del_doctor_name'] = doctor_name
+            # html_list = list()
+            num = 1
+            for n, one_pat_value in enumerate(data['pat_value']):
+                if n in delete_list or str(n) in delete_list:
+                    one_pat_value['del_reason'] = delete_list.get(n, '') or delete_list.get(str(n), '')
                     del_value.append(one_pat_value)
                     continue
-            # data['pat_value'] = pat_value
-            # collection.update({'_id': data_id}, {'$set': {'pat_value': pat_value}}, upsert=True)
+                one_pat_value['num'] = num
+                pat_value.append(one_pat_value)
+                num += 1
+                # if one_pat_value['html'] not in html_list:
+                #     html_list.append(one_pat_value['html'])
+            data['pat_value'] = pat_value
+            # data['pat_info']['html'] = html_list
+            collection.update({'_id': data_id}, {'$set': {'pat_value': pat_value}}, upsert=True)
             collection.update({'_id': data_id}, {'$set': {'del_value': del_value}}, upsert=True)
             if collection_name:
                 conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                                collection_name=collection_name)
-                # conn.update({'_id': data_id}, {'$set': {'pat_value': pat_value}}, upsert=True)
+                conn.update({'_id': data_id}, {'$set': {'pat_value': pat_value}}, upsert=True)
                 conn.update({'_id': data_id}, {'$set': {'del_value': del_value}}, upsert=True)
+            # collection.update({'_id': data_id}, {'$set': {'pat_info.html': html_list}}, upsert=True)
         machine_score = sum([value['score'] for value in data.get('pat_value', list()) if 'score' in value])
-        del_score = sum([value['score'] for value in data.get('del_value', list()) if 'score' in value])
-        machine_score -= del_score
         artificial_score = sum([float(value['score']) for value in content if 'score' in value])
-        content_exist = [(value.get('reg', ''), value.get('text', ''), value.get('score', ''), value.get('selectedTab', ''), value.get('selectedText', '')) for value in data.get('content', list())]
-        push_content = list()
-        for one_data in content:
-            if (one_data.get('reg', ''), one_data.get('text', ''), one_data.get('score', ''), one_data.get('selectedTab', ''), one_data.get('selectedText', '')) not in content_exist:
-                if one_data.get('reg'):
-                    one_data['batchno'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-                    one_data['doctor_name'] = doctor_name
-            push_content.append(one_data)
-        collection.update({'_id': data_id}, {'$set': {'content': push_content}}, upsert=True)
-        collection.update({'_id': data_id}, {'$set': {'control_date': datetime.strftime(datetime.now(), '%Y-%m-%d')}}, upsert=True)
+        collection.update({'_id': data_id}, {'$set': {'content': content}}, upsert=True)
+        collection.update({'_id': data_id}, {'$set': {'control_date': datetime.strftime(datetime.now(), '%Y-%m-%d')}},
+                          upsert=True)
         collection.update({'_id': data_id}, {'$set': {'status': True}}, upsert=True)
         collection.update({'_id': data_id}, {'$set': {'pat_info.machine_score': machine_score}}, upsert=True)
         collection.update({'_id': data_id}, {'$set': {'pat_info.artificial_score': artificial_score}}, upsert=True)
@@ -614,8 +635,9 @@ class StatisticPatientInfos(object):
         if collection_name:
             conn = self.mongo_push_utils.connectCollection(database_name=self.database_name,
                                                            collection_name=collection_name)
-            conn.update({'_id': data_id}, {'$set': {'content': push_content}}, upsert=True)
-            conn.update({'_id': data_id}, {'$set': {'control_date': datetime.strftime(datetime.now(), '%Y-%m-%d')}}, upsert=True)
+            conn.update({'_id': data_id}, {'$set': {'content': content}}, upsert=True)
+            conn.update({'_id': data_id}, {'$set': {'control_date': datetime.strftime(datetime.now(), '%Y-%m-%d')}},
+                        upsert=True)
             conn.update({'_id': data_id}, {'$set': {'status': True}}, upsert=True)
             conn.update({'_id': data_id}, {'$set': {'pat_info.machine_score': machine_score}}, upsert=True)
             conn.update({'_id': data_id}, {'$set': {'pat_info.artificial_score': artificial_score}}, upsert=True)
@@ -627,7 +649,7 @@ class StatisticPatientInfos(object):
         is_zhongmo: True：终末，False：既往
         """
         if is_zhongmo:
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_zhongmo')  # 只读权限
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_zhongmo')  # 只读权限
         else:
             conn = self.mongo_pull_utils.connection(self.collection_name)
         show_field = {'pat_info.inp_no': 1,
@@ -637,7 +659,6 @@ class StatisticPatientInfos(object):
                       'pat_info.dept_discharge_from_name': 1,
                       'pat_value': 1,
                       'content': 1,
-                      'del_value.code': 1,
                       'record_quality_doctor': 1}
         data = conn.find_one({'_id': data_id}, show_field) or dict()
         result = dict()
@@ -657,7 +678,6 @@ class StatisticPatientInfos(object):
                     if path_name not in path_list:
                         path_list.append(path_name)
         value_list = data.get('pat_value', list()) + data.get('content', list())
-        del_code = [value['code'] for value in data.get('del_value', list()) if 'code' in value]
         result['info'] = list()
         for path in path_list:
             for value in value_list:
@@ -668,9 +688,6 @@ class StatisticPatientInfos(object):
                 value_score = value.get('score') or value.get('score')
                 value_reason = value.get('reason') or value.get('text')
                 if 'code' in value:
-                    # 已人工删除的机器质控不展示
-                    if value['code'] in del_code:
-                        continue
                     value_flag = 'machine'
                 elif 'reg' in value:
                     value_flag = 'manual'
@@ -687,7 +704,7 @@ class StatisticPatientInfos(object):
         """
         保存修改内容
         """
-        collection = self.mongo_pull_utils.connection(collection_name=self.collection_name+'zhongmo')
+        collection = self.mongo_pull_utils.connection(collection_name=self.collection_name + 'zhongmo')
         data = collection.find_one({'_id': data_id, 'pat_value.code': regular_code}, {'_id': 1})
         if not data:
             return False
@@ -701,12 +718,12 @@ class StatisticPatientInfos(object):
         """
         按月给出科室分类数
         """
-        collection = self.mongo_pull_utils.connection(collection_name=self.collection_name+'zhongmo')
+        collection = self.mongo_pull_utils.connection(collection_name=self.collection_name + 'zhongmo')
         collection_bingan = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                                     collection_name='binganshouye')
         query_field = dict()
         if not start_month:
-            month = datetime.now().month-1 or 12
+            month = datetime.now().month - 1 or 12
             if month == 12:
                 year = datetime.now().year - 1
             else:
@@ -721,9 +738,11 @@ class StatisticPatientInfos(object):
         result = dict()
         temp = dict()
         query_result = collection.aggregate([query_field,
-                                             {"$group": {"_id": "$pat_info.dept_discharge_from_name", "count": {"$sum": 1}}}])
-        query_result_bingan = collection_bingan.aggregate([{'$match': {'binganshouye.pat_visit.discharge_time': {'$gt': time_left, '$lt': time_right}}},
-                                                           {"$group": {"_id": "$binganshouye.pat_visit.dept_discharge_from_name", "count": {"$sum": 1}}}])
+                                             {"$group": {"_id": "$pat_info.dept_discharge_from_name",
+                                                         "count": {"$sum": 1}}}])
+        query_result_bingan = collection_bingan.aggregate(
+            [{'$match': {'binganshouye.pat_visit.discharge_time': {'$gt': time_left, '$lt': time_right}}},
+             {"$group": {"_id": "$binganshouye.pat_visit.dept_discharge_from_name", "count": {"$sum": 1}}}])
 
         for value in query_result_bingan:
             temp.setdefault(value['_id'], {'error': 0})
@@ -737,12 +756,16 @@ class StatisticPatientInfos(object):
             result['info'].append({'dept': k,
                                    'total': v['total'],
                                    'error': v['error'],
-                                   'right': v['total']-v['error']})
+                                   'right': v['total'] - v['error']})
         result['info'].sort(key=lambda x: x['error'], reverse=True)
         result['num'] = len(result['info'])
         return result
 
     def oneYearRightAndError(self):
+        """
+        按年份查询病历问题量
+        既往质控页面
+        """
         collection_name = self.collection_name + '_statistics'
         collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                              collection_name=collection_name)
@@ -762,7 +785,7 @@ class StatisticPatientInfos(object):
                                          'error': error,
                                          'right': right,
                                          'total': total,
-                                         'error_ratio': error/total if total else 0})
+                                         'error_ratio': error / total if total else 0})
             for dept in data['info']:
                 if not dept['dept']:
                     continue
@@ -774,16 +797,18 @@ class StatisticPatientInfos(object):
                 temp[year][dept['dept']]['error'] += dept['error']
                 temp[year][dept['dept']]['total'] += dept['total']
         for k in result:
-            result[k]['error_ratio_median'] = sum(sorted([value['error_ratio'] for value in result[k]['info']])[5:7]) / 2
+            result[k]['error_ratio_median'] = sum(
+                sorted([value['error_ratio'] for value in result[k]['info']])[5:7]) / 2
             result[k]['info'].sort(key=lambda x: x['date'])
             result[k]['error_ratio_average'] = sum([value['error_ratio'] for value in result[k]['info']]) / 12
         temp_ratio = dict()
         for k, v in temp.items():
             temp_ratio[k] = dict()
             for kk, vv in v.items():
-                value = 0 if vv['total'] == 0 else vv['error']/vv['total']
+                value = 0 if vv['total'] == 0 else vv['error'] / vv['total']
                 temp_ratio[k][kk] = value
         for k, v in temp_ratio.items():
+            """病历问题量排名"""
             sorted_list = sorted(v.items(), key=lambda x: x[1], reverse=True)
             first_five = dict(sorted_list[:5])
             last_five = dict(sorted_list[-5:])
@@ -792,6 +817,7 @@ class StatisticPatientInfos(object):
         return result
 
     def oneYearRightAndError2(self, left_line='', right_line=''):
+        # 病历问题科室分布图
         collection_name = self.collection_name + '_statistics'
         collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                              collection_name=collection_name)
@@ -812,8 +838,8 @@ class StatisticPatientInfos(object):
                 l = len(vv['info'])
                 if l < 3:
                     continue
-                vv['left_line'] = vv['info'][l//3-1]['error_ratio']
-                vv['right_line'] = vv['info'][2*l//3-1]['error_ratio']
+                vv['left_line'] = vv['info'][l // 3 - 1]['error_ratio']
+                vv['right_line'] = vv['info'][2 * l // 3 - 1]['error_ratio']
                 if left_line and right_line:
                     vv['left_line'] = float(left_line)
                     vv['right_line'] = float(right_line)
@@ -822,11 +848,13 @@ class StatisticPatientInfos(object):
                 if vv['right_line'] == 1:
                     vv['right_line'] = 0
                 vv['left_dept'] = [value for value in vv['info'] if value['error_ratio'] >= vv['left_line']]
-                vv['mid_dept'] = [value for value in vv['info'] if vv['left_line'] > value['error_ratio'] > vv['right_line']]
+                vv['mid_dept'] = [value for value in vv['info'] if
+                                  vv['left_line'] > value['error_ratio'] > vv['right_line']]
                 vv['right_dept'] = [value for value in vv['info'] if vv['right_line'] >= value['error_ratio']]
         return result
 
     def oneYearRightAndError3(self):
+        # 科室问题分类
         collection_name = self.collection_name + '_statistics'
         collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                              collection_name=collection_name)
@@ -870,7 +898,7 @@ class StatisticPatientInfos(object):
                         temp[dept_name].append(0)
             t = dict()
             for name, data in temp.items():
-                data_ratio = list(map(lambda x: x[0]/x[1] if x[0] else 0, zip(data, total_list)))
+                data_ratio = list(map(lambda x: x[0] / x[1] if x[0] else 0, zip(data, total_list)))
                 t.update({name: {'data': data, 'data_ratio': data_ratio}})
             x = sorted(t.items(), key=lambda x: sum(x[1]['data']), reverse=True)
             for i in x:
@@ -878,19 +906,33 @@ class StatisticPatientInfos(object):
             res[k]['total'] = total_list
         return res
 
-    def deptRightAndError(self, dept_name='', start_date='', end_date='', collection_suffix='_statistics'):
+    def deptRightAndError(self, dept_name='', start_date='', end_date='', collection_suffix='_statistics',
+                          last_month=''):
         collection_name = self.collection_name + collection_suffix
         collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                              collection_name=collection_name)
         result = dict()
         temp = dict()
         query_field = dict()
-        if start_date:
-            query_field.setdefault('_id', dict())
-            query_field["_id"]['$gte'] = start_date  # 包括end_date的日期,选4-5月，要有4月和5月的数据
-        if end_date:
-            query_field.setdefault('_id', dict())
-            query_field["_id"]['$lte'] = end_date
+        start = ''
+        end = ''
+        if last_month == '0':  # 本月
+            start, end = self.this_month()
+        elif last_month == '1':  # 上月
+            start, end = self.last_month()
+        elif last_month == '2':  # 上上月
+            start, end = self.last_two_month()
+        if start_date and end_date:
+            if start and start_date < start:
+                start_date = start
+            if end and end_date > end:
+                end_date = end
+            query_field["_id"] = {'$gte': start_date, '$lt': end_date}  # 不包括end_date的日期
+        else:
+            if start and end:
+                start_date = start
+                end_date = end
+                query_field["_id"] = {'$gte': start_date, '$lt': end_date}
         if dept_name:
             show_keys = 'dept_name.' + dept_name
             show_field = {show_keys: 1}
@@ -918,7 +960,8 @@ class StatisticPatientInfos(object):
         result_sort = dict(sorted(result.items(), key=lambda x: x[1]['problem_sum'], reverse=True))
         return result_sort
 
-    def regularManage(self, sheet_name='', regular_name='', status='', dept='', record='', modified_code='', modified_dept='', modified_score='', modified_status=''):
+    def regularManage(self, sheet_name='', regular_name='', status='', dept='', record='', modified_code='',
+                      modified_dept='', modified_score='', modified_status=''):
         """
         规则管理页面
         :param sheet_name: 医生端/环节/终末
@@ -954,23 +997,27 @@ class StatisticPatientInfos(object):
                 if modified_dept and mongo_result.get('dept'):
                     mongo_result['dept'] = modified_dept
                     mongo_result['modify_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-                    self.logger_back.info('[dept] of [{0}] has been modified to [{1}]'.format(modified_code, modified_dept))
+                    self.logger_back.info(
+                        '[dept] of [{0}] has been modified to [{1}]'.format(modified_code, modified_dept))
                 if modified_score and mongo_result.get('score'):
                     if isinstance(modified_code, str):
                         try:
                             score = float(modified_score)
                             mongo_result['score'] = score
                             mongo_result['modify_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-                            self.logger_back.info('[score] of [{0}] has been modified to [{1}]'.format(modified_code, modified_score))
+                            self.logger_back.info(
+                                '[score] of [{0}] has been modified to [{1}]'.format(modified_code, modified_score))
                         except:
-                            self.logger_back.info('[score] of [{0}] failed to modified to [{1}]'.format(modified_code, modified_score))
+                            self.logger_back.info(
+                                '[score] of [{0}] failed to modified to [{1}]'.format(modified_code, modified_score))
                     else:
                         mongo_result['score'] = modified_score
                         mongo_result['modify_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d')
                 if modified_status and mongo_result.get('status'):
                     mongo_result['status'] = modified_status
                     mongo_result['modify_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-                    self.logger_back.info('[status] of [{0}] has been modified to [{1}]'.format(modified_code, modified_status))
+                    self.logger_back.info(
+                        '[status] of [{0}] has been modified to [{1}]'.format(modified_code, modified_status))
             self.mongo_push_utils.pushData(name_switch.get(sheet_name), mongo_result)
         result = self.showRegular(sheet_name, regular_name, status, dept, record)
         return result
@@ -995,7 +1042,8 @@ class StatisticPatientInfos(object):
             regular_dept = list()
             if dept:
                 value = regular_info.get('dept', dict())
-                if ('$in' in value and (dept not in value['$in'])) or ('$nin' in value and (dept in value['$nin'])) or (dept == '通用' and value != {'$nin': []}):
+                if ('$in' in value and (dept not in value['$in'])) or ('$nin' in value and (dept in value['$nin'])) or (
+                        dept == '通用' and value != {'$nin': []}):
                     continue
                 if '$in' in value:
                     regular_dept = value['$in']
@@ -1048,7 +1096,8 @@ class StatisticPatientInfos(object):
         result['monitor_date'] = monitor_date
         return result
 
-    def fileDownload(self, status_bool='all', dept_name='all', patient_id='', regular_details='', code='', record='', start_date='', end_date='', category='', isResult=False, last_month='0'):
+    def fileDownload(self, status_bool='all', dept_name='all', patient_id='', regular_details='', code='', record='',
+                     start_date='', end_date='', category='', isResult=False, last_month='0'):
         """
         last_month: 0：终末，本月；1：终末，上月；2：终末，上上月，3：既往
         """
@@ -1056,16 +1105,17 @@ class StatisticPatientInfos(object):
             os.mkdir('./excel')
         else:
             for i in os.listdir('./excel'):
-                os.remove('./excel/'+i)
+                os.remove('./excel/' + i)
         file_name = './excel/' + datetime.now().strftime("%Y%m%d%H%M%S") + '.xls'
 
-        result_list = self.findPatientByStatus(status_bool, dept_name, 0, 0, patient_id, regular_details, code, record, start_date, end_date, category, isResult, last_month)
-        data = result_list.get('info', list())  # 已经不包含删除的机器质控结果
+        result_list = self.findPatientByStatus(status_bool, dept_name, 0, 0, patient_id, regular_details, code, record,
+                                               start_date, end_date, category, isResult, last_month)
+        data = result_list.get('info', list())
         workbook = xlwt.Workbook(encoding='utf-8')
         style = xlwt.XFStyle()  # 创建一个样式对象，初始化样式
         al = xlwt.Alignment()
-        al.horz = xlwt.Alignment.HORZ_LEFT      # 设置水平左端对齐
-        al.vert = xlwt.Alignment.VERT_CENTER      # 设置垂直居中
+        al.horz = xlwt.Alignment.HORZ_LEFT  # 设置水平左端对齐
+        al.vert = xlwt.Alignment.VERT_CENTER  # 设置垂直居中
         style.alignment = al
         sheet_name = 'sheet1'
         worksheet = workbook.add_sheet(sheet_name, cell_overwrite_ok=True)
@@ -1086,20 +1136,21 @@ class StatisticPatientInfos(object):
             start_line = line
             value_list = value['pat_value'].copy()
             for content in value.get('content', list()):
-                value_list.append({'score': float(content.get('score', '0')), 'name': '人工: '+content.get('reg', ''), 'reason': '人工: '+content.get('selectedText', '')})
+                value_list.append({'score': float(content.get('score', '0')), 'name': '人工: ' + content.get('reg', ''),
+                                   'reason': '人工: ' + content.get('selectedText', '')})
             for pat_value in value_list:
-                if worksheet.name != 'sheet' + str(line//65535+1):
-                    worksheet.merge(start_line, line-1, 0, 0)
-                    worksheet.merge(start_line, line-1, 1, 1)
-                    worksheet.merge(start_line, line-1, 2, 2)
-                    worksheet.merge(start_line, line-1, 3, 3)
-                    worksheet.merge(start_line, line-1, 4, 4)
-                    worksheet.merge(start_line, line-1, 5, 5)
-                    worksheet.merge(start_line, line-1, 6, 6)
-                    worksheet.merge(start_line, line-1, 7, 7)
-                    worksheet.merge(start_line, line-1, 8, 8)
+                if worksheet.name != 'sheet' + str(line // 65535 + 1):
+                    worksheet.merge(start_line, line - 1, 0, 0)
+                    worksheet.merge(start_line, line - 1, 1, 1)
+                    worksheet.merge(start_line, line - 1, 2, 2)
+                    worksheet.merge(start_line, line - 1, 3, 3)
+                    worksheet.merge(start_line, line - 1, 4, 4)
+                    worksheet.merge(start_line, line - 1, 5, 5)
+                    worksheet.merge(start_line, line - 1, 6, 6)
+                    worksheet.merge(start_line, line - 1, 7, 7)
+                    worksheet.merge(start_line, line - 1, 8, 8)
                     start_line = 1
-                    sheet_name = 'sheet' + str(line//65535+1)
+                    sheet_name = 'sheet' + str(line // 65535 + 1)
                     worksheet = workbook.add_sheet(sheet_name, cell_overwrite_ok=True)
                     worksheet.write(0, 0, '序号')
                     worksheet.write(0, 1, '患者ID')
@@ -1123,35 +1174,33 @@ class StatisticPatientInfos(object):
                 worksheet.write(line % 65535, 5, value['pat_info'].get('inp_doctor_name', ''), style)
                 worksheet.write(line % 65535, 6, value['pat_info'].get('attending_doctor_name', ''), style)
                 worksheet.write(line % 65535, 7, value['pat_info'].get('senior_doctor_name', ''), style)
-                worksheet.write(line % 65535, 8, 100 - float(value['pat_info'].get('machine_score', 0))-float(value['pat_info'].get('artificial_score', 0)), style)
+                worksheet.write(line % 65535, 8, 100 - float(value['pat_info'].get('machine_score', 0)) - float(
+                    value['pat_info'].get('artificial_score', 0)), style)
                 worksheet.write(line % 65535, 9, pat_value['score'], style)
                 worksheet.write(line % 65535, 10, pat_value['name'], style)
                 worksheet.write(line % 65535, 11, pat_value['reason'], style)
                 line += 1
-            worksheet.merge(start_line, line % 65535-1, 0, 0)
-            worksheet.merge(start_line, line % 65535-1, 1, 1)
-            worksheet.merge(start_line, line % 65535-1, 2, 2)
-            worksheet.merge(start_line, line % 65535-1, 3, 3)
-            worksheet.merge(start_line, line % 65535-1, 4, 4)
-            worksheet.merge(start_line, line % 65535-1, 5, 5)
-            worksheet.merge(start_line, line % 65535-1, 6, 6)
-            worksheet.merge(start_line, line % 65535-1, 7, 7)
-            worksheet.merge(start_line, line % 65535-1, 8, 8)
+            worksheet.merge(start_line, line % 65535 - 1, 0, 0)
+            worksheet.merge(start_line, line % 65535 - 1, 1, 1)
+            worksheet.merge(start_line, line % 65535 - 1, 2, 2)
+            worksheet.merge(start_line, line % 65535 - 1, 3, 3)
+            worksheet.merge(start_line, line % 65535 - 1, 4, 4)
+            worksheet.merge(start_line, line % 65535 - 1, 5, 5)
+            worksheet.merge(start_line, line % 65535 - 1, 6, 6)
+            worksheet.merge(start_line, line % 65535 - 1, 7, 7)
+            worksheet.merge(start_line, line % 65535 - 1, 8, 8)
             if line % 1000 == 0:
                 worksheet.flush_row_data()  # 减少内存占用
         workbook.save(file_name)
         return file_name
 
-    def problemNameAndCode(self, regular_name='', record='', manage=False, sheet_name='终末'):
-        """
-        manage: 是否是规则管理页面
-        """
+    def problemNameAndCode(self, regular_name='', record='', sheet_name='终末'):
+        # 既往/终末质控页面 -- 筛选页面 -- 规则文书/问题分类
         result = dict()
         regular_excel = self.showRegular(sheet_name=sheet_name, record=record, regular_name=regular_name)
         code_list = set()
         for info in regular_excel['info']:
-            # 规则管理页面返回所有规则分类，其它页面返回启用的规则分类
-            if info.get('regular_status', '') != '启用' and not manage:
+            if info.get('regular_status', '') != '启用':
                 continue
             #     if record and record != '全部' and self.record_to_regular(record):
             #         if info['regular_name'] not in self.record_to_regular(record):
@@ -1227,6 +1276,36 @@ class StatisticPatientInfos(object):
             result[regular_details] = value.get('score', 0)
         return result.get(record, dict())
 
+    def record_regular_detail_score(self, result_data=""):
+        """
+        文书名称所包含的规则名称
+        :param result_data: 从视图函数传递过来的参数，是 record、regular、detail 之一
+        :return: 规则名称查询结果
+        """
+        if not result_data:
+            return dict()
+        result = dict()
+        for regular_code, value in self.regular_model.items():  # 从 regular_model.xlsx 中读取文书名称及规则名称
+            # 获取文书名称
+            if not value.get('record_name'):
+                continue
+            record_name = value.get('record_name')
+            # 文书名称作为 key 值
+            result.setdefault(record_name, list())
+            if not value.get('regular_classify'):
+                continue
+            regular_classify = value.get('regular_classify')
+            result.setdefault(regular_classify, list())
+            if regular_classify not in result[record_name]:
+                result[record_name].append(regular_classify)
+            if not value.get('regular_details'):
+                continue
+            regular_details = value.get('regular_details')
+            if regular_details not in result[regular_classify]:
+                result[regular_classify].append(regular_details)
+            result[regular_details] = value.get('score', 0)
+        return result.get(result_data, dict())
+
     def regular_to_detail(self, regular=''):
         if regular:
             return self.record_to_regular(regular)
@@ -1240,6 +1319,10 @@ class StatisticPatientInfos(object):
             return {}
 
     def version(self):
+        """
+        获取当前系统的版本号
+        :return:
+        """
         result = dict()
         app_seg = RunSegmentWord()
         seg_ver = app_seg.version()
@@ -1276,10 +1359,14 @@ class StatisticPatientInfos(object):
             result['binganshouye']['pat_info_marital_status_name'] = binganshouye['pat_visit']['marital_status_name']
             result['binganshouye']['pat_info_occupation_name'] = binganshouye['pat_visit']['occupation_name']
             result['binganshouye']['pat_info_pregnancy_status'] = binganshouye['pat_visit'].get('pregnancy_status')
-            result['binganshouye']['pat_visit_dept_admission_to_name'] = binganshouye['pat_visit']['dept_admission_to_name']
-            result['binganshouye']['pat_visit_dept_admission_to_code'] = binganshouye['pat_visit']['dept_admission_to_code']
-            result['binganshouye']['district_admission_to_name'] = binganshouye['pat_visit'].get('district_admission_to_name')
-            result['binganshouye']['district_admission_to_code'] = binganshouye['pat_visit'].get('district_admission_to_code')
+            result['binganshouye']['pat_visit_dept_admission_to_name'] = binganshouye['pat_visit'][
+                'dept_admission_to_name']
+            result['binganshouye']['pat_visit_dept_admission_to_code'] = binganshouye['pat_visit'][
+                'dept_admission_to_code']
+            result['binganshouye']['district_admission_to_name'] = binganshouye['pat_visit'].get(
+                'district_admission_to_name')
+            result['binganshouye']['district_admission_to_code'] = binganshouye['pat_visit'].get(
+                'district_admission_to_code')
             result['binganshouye']['drug_allergy_name'] = binganshouye['pat_visit'].get('drug_allergy_name')
             result['binganshouye']['senior_doctor_name'] = binganshouye['pat_visit']['senior_doctor_name']
             result['binganshouye']['attending_doctor_name'] = binganshouye['pat_visit']['attending_doctor_name']
@@ -1300,8 +1387,9 @@ class StatisticPatientInfos(object):
     def zhongmoDept(self):
         """
         返回终末问题病历的科室
+        :return:
         """
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_zhongmo')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_zhongmo')
         mongo_result = conn.find({}, {'pat_info.dept_discharge_from_name': 1})
         result = set()
         for data in mongo_result:
@@ -1319,7 +1407,7 @@ class StatisticPatientInfos(object):
         total_zhongmo_last_two_month: 上上月病历总数
         """
         # 本月各科室问题病历数
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_this_month')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_this_month')
         this_month_total = dict()
         this_month_num = dict()
         mongo_result = conn.find({}, {'pat_info.dept_discharge_from_name': 1, 'pat_value.code': 1})
@@ -1334,7 +1422,7 @@ class StatisticPatientInfos(object):
         print(this_month_total)
         print(this_month_num)
         # 上月各科室问题病历数
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_last_month')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_last_month')
         last_month_total = dict()
         last_month_num = dict()
         mongo_result = conn.find({}, {'pat_info.dept_discharge_from_name': 1, 'pat_value.code': 1})
@@ -1347,7 +1435,7 @@ class StatisticPatientInfos(object):
                     last_month_num.setdefault(dept, 0)
                     last_month_num[dept] += 1
         # 上上月各科室问题病历数
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_last_two_month')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_last_two_month')
         last_two_month_total = dict()
         last_two_month_num = dict()
         mongo_result = conn.find({}, {'pat_info.dept_discharge_from_name': 1, 'pat_value.code': 1})
@@ -1359,6 +1447,33 @@ class StatisticPatientInfos(object):
                 if data.get('pat_value', list()):
                     last_two_month_num.setdefault(dept, 0)
                     last_two_month_num[dept] += 1
+        # # 本月病历总数
+        # conn = self.mongo_pull_utils.connection('total_zhongmo_this_month')
+        # this_month_total = dict()
+        # mongo_result = conn.find()
+        # for data in mongo_result:
+        #     if data.get('dept'):
+        #         dept = data['dept']
+        #         this_month_total.setdefault(dept, 0)
+        #         this_month_total[dept] += 1
+        # # 上月病历总数
+        # conn = self.mongo_pull_utils.connection('total_zhongmo_last_month')
+        # last_month_total = dict()
+        # mongo_result = conn.find()
+        # for data in mongo_result:
+        #     if data.get('dept'):
+        #         dept = data['dept']
+        #         last_month_total.setdefault(dept, 0)
+        #         last_month_total[dept] += 1
+        # # 上上月病历总数
+        # conn = self.mongo_pull_utils.connection('total_zhongmo_last_two_month')
+        # last_two_month_total = dict()
+        # mongo_result = conn.find()
+        # for data in mongo_result:
+        #     if data.get('dept'):
+        #         dept = data['dept']
+        #         last_two_month_total.setdefault(dept, 0)
+        #         last_two_month_total[dept] += 1
         result = dict()
         tmp = sorted(this_month_num.items(), key=lambda x: x[1], reverse=True)
         dept_list = [value[0] for value in tmp]
@@ -1368,15 +1483,15 @@ class StatisticPatientInfos(object):
         for dept in dept_list:
             result['graph_data'].append({
                 'dept': dept,
-                'by': this_month_num.get(dept, 0)/this_month_total.get(dept, float('inf')),
-                'sy': last_month_num.get(dept, 0)/last_month_total.get(dept, float('inf')),
-                'ssy': last_two_month_num.get(dept, 0)/last_two_month_total.get(dept, float('inf')),
+                'by': this_month_num.get(dept, 0) / this_month_total.get(dept, float('inf')),
+                'sy': last_month_num.get(dept, 0) / last_month_total.get(dept, float('inf')),
+                'ssy': last_two_month_num.get(dept, 0) / last_two_month_total.get(dept, float('inf')),
                 'by_num': this_month_num.get(dept, 0),
                 'sy_num': last_month_num.get(dept, 0),
                 'ssy_num': last_two_month_num.get(dept, 0),
             })
-            this_month_percentage[dept] = this_month_num.get(dept, 0)/this_month_total.get(dept, float('inf'))
-            last_month_percentage[dept] = last_month_num.get(dept, 0)/last_month_total.get(dept, float('inf'))
+            this_month_percentage[dept] = this_month_num.get(dept, 0) / this_month_total.get(dept, float('inf'))
+            last_month_percentage[dept] = last_month_num.get(dept, 0) / last_month_total.get(dept, float('inf'))
         tmp = dict()
         for dept, percentage in this_month_percentage.items():
             tmp[dept] = percentage - last_month_percentage[dept]
@@ -1386,6 +1501,7 @@ class StatisticPatientInfos(object):
         return result
 
     def deptProblemClassify(self, dept):
+        # 科室问题分类栏
         result = dict()
         month_list = ['this_month', 'last_month', 'last_two_month']
         temp = dict()
@@ -1393,7 +1509,7 @@ class StatisticPatientInfos(object):
             total = 0
             this_month = dict()
             temp[month_name] = list()
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_'+month_name)
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_' + month_name)
             pipeline = [{'$match': {'pat_value.code': {'$exists': True}, 'pat_info.dept_discharge_from_name': dept}},
                         {'$unwind': '$pat_value'},
                         {'$group': {'_id': '$pat_value.name', 'value': {'$sum': 1}}}]
@@ -1404,7 +1520,8 @@ class StatisticPatientInfos(object):
                 total += data.get('value', 0)
             tmp = sorted(this_month.items(), key=lambda x: x[1], reverse=True)
             for data in tmp:
-                temp[month_name].append({'name': data[0], 'num': data[1], 'percentage': data[1]/(total or float('inf'))})
+                temp[month_name].append(
+                    {'name': data[0], 'num': data[1], 'percentage': data[1] / (total or float('inf'))})
         result['name'] = list()
         result['this_month'] = list()
         for value in temp['this_month']:
@@ -1412,28 +1529,31 @@ class StatisticPatientInfos(object):
                 result['name'].append(value.get('name'))
                 result['this_month'].append({'num': value.get('num', 0), 'percentage': value.get('percentage', 0)})
         for month_name in month_list[1:]:
-            result.setdefault(month_name, [{'num': 0, 'percentage': 0}]*len(result['name']))
+            result.setdefault(month_name, [{'num': 0, 'percentage': 0}] * len(result['name']))
             for value in temp[month_name]:
                 if value.get('name'):
                     if value.get('name') in result['name']:
                         index = result['name'].index(value.get('name'))
-                        result[month_name][index] = {'num': value.get('num', 0), 'percentage': value.get('percentage', 0)}
+                        result[month_name][index] = {'num': value.get('num', 0),
+                                                     'percentage': value.get('percentage', 0)}
                     else:
                         result['name'].append(value.get('name'))
-                        result[month_name].append({'num': value.get('num', 0), 'percentage': value.get('percentage', 0)})
+                        result[month_name].append(
+                            {'num': value.get('num', 0), 'percentage': value.get('percentage', 0)})
                         result['this_month'].append({'num': 0, 'percentage': 0})
                         if month_name == 'last_two_month':
                             result['last_month'].append({'num': 0, 'percentage': 0})
         return result
 
     def doctorProblemNum(self, dept):
+        # 医生问题分类栏
         result = dict()
         result['senior_doctor_name'] = dict()
         result['attending_doctor_name'] = dict()
         result['inp_doctor_name'] = dict()
         month_list = ['this_month', 'last_month', 'last_two_month']
         for month_name in month_list:
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_'+month_name)
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_' + month_name)
             if dept:
                 mongo_result = conn.find({'pat_value.code': {'$exists': True},
                                           'pat_info.dept_discharge_from_name': dept},
@@ -1461,8 +1581,10 @@ class StatisticPatientInfos(object):
                 result['senior_doctor_name'][data['pat_info']['senior_doctor_name']].setdefault('children', list())
                 result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('this_month', 0)
                 result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('last_month', 0)
-                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('last_two_month', 0)
-                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('children', list())
+                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('last_two_month',
+                                                                                                      0)
+                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('children',
+                                                                                                      list())
                 result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('this_month', 0)
                 result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('last_month', 0)
                 result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('last_two_month', 0)
@@ -1471,29 +1593,42 @@ class StatisticPatientInfos(object):
                 result['inp_doctor_name'][data['pat_info']['inp_doctor_name']][month_name] += 1
 
                 result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('back_to_previous', list())
-                if data.get('pat_info', dict()).get('senior_doctor_name') not in result['inp_doctor_name'][data['pat_info']['inp_doctor_name']]['back_to_previous']:
-                    result['inp_doctor_name'][data['pat_info']['inp_doctor_name']]['back_to_previous'].append(data.get('pat_info', dict()).get('senior_doctor_name'))
-                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('back_to_previous', ['senior_doctor_name'])
+                if data.get('pat_info', dict()).get('senior_doctor_name') not in \
+                        result['inp_doctor_name'][data['pat_info']['inp_doctor_name']]['back_to_previous']:
+                    result['inp_doctor_name'][data['pat_info']['inp_doctor_name']]['back_to_previous'].append(
+                        data.get('pat_info', dict()).get('senior_doctor_name'))
+                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault(
+                    'back_to_previous', ['senior_doctor_name'])
                 result['senior_doctor_name'][data['pat_info']['senior_doctor_name']].setdefault('back_to_previous', [])
 
-                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('parent', data.get('pat_info', dict()).get('senior_doctor_name'))
-                result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('parent', data.get('pat_info', dict()).get('attending_doctor_name'))
+                result['attending_doctor_name'][data['pat_info']['attending_doctor_name']].setdefault('parent',
+                                                                                                      data.get(
+                                                                                                          'pat_info',
+                                                                                                          dict()).get(
+                                                                                                          'senior_doctor_name'))
+                result['inp_doctor_name'][data['pat_info']['inp_doctor_name']].setdefault('parent', data.get('pat_info',
+                                                                                                             dict()).get(
+                    'attending_doctor_name'))
 
-                if data.get('pat_info', dict()).get('attending_doctor_name') not in result['senior_doctor_name'][data['pat_info']['senior_doctor_name']]['children']:
-                    result['senior_doctor_name'][data['pat_info']['senior_doctor_name']]['children'].append(data.get('pat_info', dict()).get('attending_doctor_name'))
+                if data.get('pat_info', dict()).get('attending_doctor_name') not in \
+                        result['senior_doctor_name'][data['pat_info']['senior_doctor_name']]['children']:
+                    result['senior_doctor_name'][data['pat_info']['senior_doctor_name']]['children'].append(
+                        data.get('pat_info', dict()).get('attending_doctor_name'))
 
-                if data.get('pat_info', dict()).get('inp_doctor_name') not in result['attending_doctor_name'][data['pat_info']['attending_doctor_name']]['children']:
-                    result['attending_doctor_name'][data['pat_info']['attending_doctor_name']]['children'].append(data.get('pat_info', dict()).get('inp_doctor_name'))
+                if data.get('pat_info', dict()).get('inp_doctor_name') not in \
+                        result['attending_doctor_name'][data['pat_info']['attending_doctor_name']]['children']:
+                    result['attending_doctor_name'][data['pat_info']['attending_doctor_name']]['children'].append(
+                        data.get('pat_info', dict()).get('inp_doctor_name'))
         tmp = list()
         for inp_doctor_name, value in result['inp_doctor_name'].items():
-            tmp.append((inp_doctor_name, value.get('this_month', 0)-value.get('last_month', 0)))  # 问题量本月减去上月
+            tmp.append((inp_doctor_name, value.get('this_month', 0) - value.get('last_month', 0)))  # 问题量本月减去上月
         tmp.sort(key=lambda x: x[1])
         result['increase'] = [value[0] for value in tmp if value[1] > 0][:5]
         result['decrease'] = [value[0] for value in tmp if value[1] < 0][::-1][:5]
         return result
 
     def zhongmoRecordName(self):
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_zhongmo')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_zhongmo')
         mongo_result = conn.find({'pat_value.code': {'$exists': True}}, {'pat_value.path': 1})
         result = set()
         for data in mongo_result:
@@ -1508,7 +1643,7 @@ class StatisticPatientInfos(object):
         return result
 
     def zhongmoRegularName(self):
-        conn = self.mongo_pull_utils.connection(self.collection_name+'_zhongmo')
+        conn = self.mongo_pull_utils.connection(self.collection_name + '_zhongmo')
         mongo_result = conn.find({'pat_value.code': {'$exists': True}}, {'pat_value.name': 1})
         result = set()
         for data in mongo_result:
@@ -1520,8 +1655,9 @@ class StatisticPatientInfos(object):
         result = list(result)
         result.insert(0, '全部')
         return result
-    
+
     def documentProblemClassify(self, record_name):
+        # 病历问题分类统计 -- 终末监控页面
         result = dict()
         month_list = ['this_month', 'last_month', 'last_two_month']
         if record_name != '全部':
@@ -1532,7 +1668,7 @@ class StatisticPatientInfos(object):
         for month_name in month_list:
             this_month = dict()
             result[month_name] = list()
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_'+month_name)
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_' + month_name)
             pipeline = [{'$unwind': '$pat_value'},
                         match_field,
                         {'$group': {'_id': '$pat_value.name', 'value': {'$sum': 1}}}]
@@ -1542,13 +1678,13 @@ class StatisticPatientInfos(object):
                     name = data.get('_id')
                     this_month[name] = data.get('value', 0)
                 result['name'] = list()
-                result[month_name] = list()
+                result[month_name] = [0] * 5
                 tmp = sorted(this_month.items(), key=lambda x: x[1], reverse=True)
-                for data in tmp[:5]:
+                for n, data in enumerate(tmp[:5]):
                     result['name'].append(data[0])
-                    result[month_name].append(data[1])
+                    result[month_name][n] = data[1]
             else:
-                result[month_name] = [0] * len(result['name'])
+                result[month_name] = [0] * 5
                 for data in mongo_result:
                     name = data.get('_id')
                     if name not in result['name']:
@@ -1563,7 +1699,7 @@ class StatisticPatientInfos(object):
         last_month = self.last_month()
         last_two_month = self.last_two_month()
         month_list = {'last_two_month': last_two_month, 'last_month': last_month, 'this_month': this_month}
-        query_field = {'$or': [{'pat_info.machine_score': {'$ne': 0}}, {'pat_info.artificial_score': {'$ne': 0}}]}
+        query_field = {'pat_value.code': {'$exists': True}}
         if dept and dept != '全部':
             query_field['pat_info.dept_discharge_from_name'] = dept
         if regular_name and regular_name != '全部':
@@ -1574,7 +1710,7 @@ class StatisticPatientInfos(object):
                 continue
             if end_date and (end_date < month_date[0]):
                 continue
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_'+month_name)
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_' + month_name)
             mongo_result = conn.find(query_field)
             for data in mongo_result:
                 tmp = dict()
@@ -1593,7 +1729,8 @@ class StatisticPatientInfos(object):
                     if regular_name and regular_name != '全部' and one_record.get('name') != regular_name:
                         continue
                     tmp.setdefault('pat_value', list())
-                    tmp['pat_value'].append({'details': one_record.get('regular_details', ''), 'name': one_record.get('name', '')})
+                    tmp['pat_value'].append(
+                        {'details': one_record.get('regular_details', ''), 'name': one_record.get('name', '')})
                 input_info.append(tmp)
 
         # 将数据库中提取的数据写入excel
@@ -1601,7 +1738,7 @@ class StatisticPatientInfos(object):
             os.mkdir('./excel')
         else:
             for i in os.listdir('./excel'):
-                os.remove('./excel/'+i)
+                os.remove('./excel/' + i)
         start_year, start_month = start_date.split('-')
         end_year, end_month = end_date.split('-')
         title = '{}年{}月~{}年{}月'.format(start_year, start_month, end_year, end_month)
@@ -1667,9 +1804,11 @@ class StatisticPatientInfos(object):
             worksheet.write_merge(start_line, end_line, 1, 1, one_record.get('visit_id', ''), caption_style)
             worksheet.write_merge(start_line, end_line, 2, 2, one_record.get('inp_no', ''), caption_style)
             worksheet.write_merge(start_line, end_line, 3, 3, one_record.get('discharge_time', ''), caption_style)
-            worksheet.write_merge(start_line, end_line, 4, 4, one_record.get('dept_discharge_from_name', ''), caption_style)
+            worksheet.write_merge(start_line, end_line, 4, 4, one_record.get('dept_discharge_from_name', ''),
+                                  caption_style)
             worksheet.write_merge(start_line, end_line, 5, 5, one_record.get('senior_doctor_name', ''), caption_style)
-            worksheet.write_merge(start_line, end_line, 6, 6, one_record.get('attending_doctor_name', ''), caption_style)
+            worksheet.write_merge(start_line, end_line, 6, 6, one_record.get('attending_doctor_name', ''),
+                                  caption_style)
             worksheet.write_merge(start_line, end_line, 7, 7, one_record.get('inp_doctor_name', ''), caption_style)
             worksheet.write_merge(start_line, end_line, 8, 8, one_record.get('zhongmo_doctor_name', ''), caption_style)
             worksheet.write_merge(start_line, end_line, 9, 9, one_record.get('machine_score', ''), caption_style)
@@ -1683,7 +1822,7 @@ class StatisticPatientInfos(object):
         last_month = self.last_month()
         last_two_month = self.last_two_month()
         month_list = {'last_two_month': last_two_month, 'last_month': last_month, 'this_month': this_month}
-        query_field = {'$or': [{'pat_info.machine_score': {'$ne': 0}}, {'pat_info.artificial_score': {'$ne': 0}}]}
+        query_field = {'pat_value.code': {'$exists': True}}
         match_field = {'$match': {'pat_value.code': {'$exists': True}}}
         if dept and dept != '全部':
             query_field['pat_info.dept_discharge_from_name'] = dept
@@ -1704,11 +1843,12 @@ class StatisticPatientInfos(object):
                 total.setdefault(data['_id'], dict())
                 total[data['_id']].setdefault('total', 0)
                 total[data['_id']]['total'] += data['value']
-            
-            conn = self.mongo_pull_utils.connection(self.collection_name+'_'+month_name)
-            
+
+            conn = self.mongo_pull_utils.connection(self.collection_name + '_' + month_name)
+
             # 问题病历总份数
-            num_result = conn.aggregate([{'$match': query_field}, {'$group': {'_id': '$pat_info.dept_discharge_from_name', 'value': {'$sum': 1}}}])
+            num_result = conn.aggregate([{'$match': query_field}, {
+                '$group': {'_id': '$pat_info.dept_discharge_from_name', 'value': {'$sum': 1}}}])
             for data in num_result:
                 total.setdefault(data['_id'], dict())
                 total[data['_id']].setdefault('document', 0)
@@ -1734,7 +1874,7 @@ class StatisticPatientInfos(object):
             os.mkdir('./excel')
         else:
             for i in os.listdir('./excel'):
-                os.remove('./excel/'+i)
+                os.remove('./excel/' + i)
         start_year, start_month = start_date.split('-')
         end_year, end_month = end_date.split('-')
         title = '{}年{}月~{}年{}月'.format(start_year, start_month, end_year, end_month)
@@ -1800,8 +1940,9 @@ class StatisticPatientInfos(object):
 if __name__ == '__main__':
     app = StatisticPatientInfos()
     t1 = datetime.now()
-    r = app.saveModifyContent()
+    r = app.deptProblemPercentage()
     import json
-    t = (datetime.now()-t1).total_seconds()
+
+    t = (datetime.now() - t1).total_seconds()
     print(json.dumps(r, ensure_ascii=False, indent=4))
     print('函数运行消耗 {0} 秒'.format(t))

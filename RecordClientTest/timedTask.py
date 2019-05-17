@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm
-@file: timedTask.py
-@time: 18-11-27 下午1:58
-@description: 
-"""
+# 定时跑任务程序
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: segmentWord.py
-@time: 18-9-26 下午4:41
-@description: 分词请求
-"""
+# 分词请求
+
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))
@@ -263,6 +256,8 @@ class RunSegmentWord(object):
 
 if __name__ == '__main__':
     app = RunSegmentWord()
+
+    # 入院记录
     ruyuanjilu = [
         {'key': 'ryjl_zs', 'value': '右腰部不适伴发热1天', 'chapter_name': 'chief_complaint'},
         {'key': 'ryjl_tgjc', 'value': 'T 39.4℃P 100次分R 20次分Bp 12775mmHg    发育正常，营养良好，神志清楚，自主体位，应答切题，查体合作。全身皮肤黏膜色泽正常，未见皮疹，无皮下结节、瘢痕，未见皮下出血点及瘀斑,未见肝掌,未见蜘蛛痣。全身浅表淋巴结未扪及肿大。头颅大小正常无畸形，五官端正。眼睑正常，巩膜无黄染，双侧瞳孔等圆等大，左瞳孔3.0mm，右瞳孔3.0mm，对光反射正常。外耳道未见分泌物,乳突无压痛。鼻腔通气良好，双鼻窦区均无压痛。口唇红润，伸舌居中，口腔黏膜正常，牙龈无出血。咽正常无充血，扁桃体无肿大。颈部无抵抗，颈静脉正常，气管居中,甲状腺未触及肿大。胸廓正常，呼吸运动正常，呼吸节律正常，双肺叩诊呈清音，双肺呼吸音清，未闻及干湿啰音。心前区无隆起，心尖搏动范围正常，心前区未触及震颤和心包摩擦感，心脏相对浊音界正常，心率70次分，心律齐整，各瓣膜听诊区未闻及杂音。腹部平坦，腹式呼吸存在，腹壁静脉无曲张，无胃型、肠型、蠕动波。腹肌柔软，无压痛、反跳痛，未触及腹部包块，肝脏肋下未触及，脾脏肋下未触及，肾脏未触及，Murphy\\script0  征阴性，肝浊音界存在，移动性浊音阴性，肾区无叩击痛，肠鸣音正常。外生殖器未查、肛门直肠未查。脊柱正常，\\script0 四肢无畸形，关节无红肿、活动自如，双下肢无浮肿。四肢肌力Ⅴ级，肌张力正常，双侧肱二、三头肌腱反射正常，双侧膝、跟腱反射正常，Hoffmann 征阴性、Babinski 征阴性、Kernig 征阴性。\x7f双肾区无红肿、无疤痕、无异常隆起，肋脊点、肋腰点无压痛、无叩痛、无放射痛。肋下未触及肾脏，双侧输尿管行程无压痛，膀胱区无充盈，无压痛。尿道外口无异常分泌物。', 'chapter_name': 'physical_examination'},
@@ -272,6 +267,8 @@ if __name__ == '__main__':
         {'key': 'ryjl_yjhys', 'value': '家人身体健康。', 'chapter_name': 'menstrual_and_obstetrical_histories'},
         {'key': 'ryjl_jzs', 'value': '否认家族遗传病史。', 'chapter_name': 'history_of_family_member_diseases'},
     ]
+
+    # 上级医师查房记录
     shangjiyishichafangjilu = [
         {
             "mr_code": "EMR10.00.03_43",
@@ -305,7 +302,7 @@ if __name__ == '__main__':
             "mr_content_html": "<html>\r\n<head>\r\n<title>北　京　大　学　第　三　医　院</title>\r\n<style type=\"text/css\">\r\n.table1 {\r\nBORDER-RIGHT: #000000 0px solid; BORDER-TOP: #000000 1px solid; BORDER-LEFT: #000000 1px solid; BORDER-BOTTOM: #000000 0px solid\r\n}\r\n.td1 {\r\n\tBORDER-RIGHT: #000000 1px solid; BORDER-TOP: #000000 0px solid; BORDER-LEFT: #000000 0px solid; BORDER-BOTTOM: #000000 1px solid\r\n}\r\n</style>\r\n</head>\r\n<body bgcolor=\"#005757\">\r\n<table width=\"794\" align=\"center\"  border=\"1\" cellspacing=\"0\" bordercolor=black  rules=none bgcolor=\"#FFFFFF\">\r\n<tr><td>\r\n<table width=\"669\" align=\"center\">\r\n<tr><td>\r\n<table  height=\"57\" align=\"center\">\r\n<tr><td>\r\n</td></tr>\r\n</table>\r\n<p align=\"center\"><span style=\"font-family: 宋体; font-size: 18px;font-weight: bold;\">北　京　大　学　第　三　医　院</span></p>\r\n<p align=\"center\"><span style=\"font-family: 宋体; font-size: 28px;font-weight: bold;\">&nbsp;病&nbsp;历&nbsp;记&nbsp;录&nbsp;</span><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n<table width=\"665\" height=\"21\">\r\n<tr style=\"display:none\">\r\n<td width=\"170\">&nbsp;</td>\r\n<td width=\"77\">&nbsp;</td>\r\n<td width=\"179\">&nbsp;</td>\r\n<td width=\"84\">&nbsp;</td>\r\n<td width=\"155\">&nbsp;</td>\r\n</tr>\r\n<tr>\r\n<td>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">姓名:</span><span style=\"font-family: 宋体; font-size: 14px;\">刘欢</span></p>\r\n</td>\r\n<td>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n</td>\r\n<td>\r\n<p align=\"center\"><span style=\"font-family: 宋体; font-size: 14px;\">第&nbsp;</span>1\r\n<span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;页</span></p>\r\n</td>\r\n<td>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n</td>\r\n<td>\r\n<p align=\"right\"><span style=\"font-family: 宋体; font-size: 14px;\">住院号:</span><span style=\"font-family: 宋体; font-size: 14px;\">5042725</span></p>\r\n</td>\r\n</tr>\r\n</table>\r\n<hr></hr>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;font-weight: bold;\">2018-12-11&nbsp;08:09</span><span style=\"font-family: 宋体; font-size: 14px;\">　　　　　</span><span style=\"font-family: 宋体; font-size: 14px;font-weight: bold;\">姜亮主任医师、李彦主治医师、胡攀攀住院总医师常规查房记录</span></p>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">今日患者一般状态尚可，神清语利，精神可，生命体征平稳，睡眠、饮食情况尚可，二便如常。查体：右下肢自腹股沟以远针刺觉减退，左侧髂腰肌肌力IV级，右侧髂腰肌肌力IV-级；双侧股四头肌肌力V级，左侧胫前肌力V级，右侧胫前肌肌力III+级；左侧小腿三头肌肌力V级，右侧小腿三头肌肌力IV级；左侧拇背伸肌肌力V级，右侧拇背伸肌肌力IV级。</span></p>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">姜亮主任医师、李彦主治医师、胡攀攀住院总医师</span><span style=\"font-family: 宋体; font-size: 14px;\">查房指示：今日行椎体肿瘤供应血管栓塞术，完善术前准备，拟明日手术。</span></p>\r\n<p align=\"right\"><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span><img src=\"data:image/jpg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAA0AFMDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigArz2w8R3Y+OGraJPPL9hOnxCCMsSglA3nA6AlS59wntWl4t+I+h+Fo5bfzjfasBti0+1BkkLnAUPj7mSR1554B6V5v4V8Ga14h8YeIIPFGs3lpeqlpeXSWEwD+a6yhAJNvyBEZl2rx82MkCgD2J/FGhR65Fojataf2nKSFtRKDJkDOCB0OOea1q5fwv8PvDvhHEmm2Ze6wR9quG8yQA9cHoue+AM9811FABWFN4lS08YQaBeWrwLd25lsrsuCk7qTvix2YDDe4J9OauveNrHSNSj0azt59V12UZj060xuA/vSMfljXpyx79DWXqmhXmt6cmo+NdRg0+zsZ0vVs7FsJDsJOZJmG5jgkHbsHJxng0AdutxC8zQpNG0q8sgYEj6ipK5fwolxeM+q/ZP7N011KWFgIwjeWSCZpBjh2wML2HXknHUUAFFFFAGL4g1fVNKFt/Znh651dpSwcQzxxCLA4yXI6n8sH2zjf2N4p8Sndr2oDRtPJB/s3SZSZXHHElxgH1yEC8HrXZ1zHjDXLuzjtdE0Yg67qpMVsSMi3QD552/wBlB0HckDnmgDif7MfUfF9vp3gvSbCHRvD8zGa4mBEBv8YywHzTNGpOOR8zcsMDNPR/D95qXxk8Sadq+v6nJKllbyyTWEpshNwMAhDnaA2AM59Sa9EV9G+HXhS1gkM/2aIiJTHC80s8rZJJCgksxySemTXmWoa54pj8a6j4r0fwpqtlZXVgltJcXtmGkjCEkyeTvXPGMZYDjJ9KAOk8XeH7HwhorX2iatrdrrEjhLC3j1CScXdwfuoYpCwcEnJ44GTXpcPmmCMzhRLtG8J03Y5x7ZrkfCGg6bLFbeK5dQu9Y1C7tw8d/fDaY42AOI4wAsSn0AzyeTW5H4k0ae5NvbahBcyqcOts3m+X6lyuQg92xQBbupLLTobnU7nyYEjiLz3DAAhFBPJ64HNeT69qWq+M1tdVuJpNH8JxTK9lb+QJbzVZQcoUhPBHGVDAj+Igjleuu/H0GoXUumeFNPfxDdr8kskTBbOHp/rJj8p4OcLuJwa5Hwv4Vu/HPiHXdT8Zai19HYXbadFaWjtDbgqAZVA4YoGYDqN235s8YANXwv4pm0qwm04z6h4n1qWdpRaW0i3H2NSAFjluOI1I2knkYJIAwBnfXSvFmu7m1jVY9GtGHFnpB3TYOD89w46jkfIo+tZXh++tNW8XRJpVzb6b4c0zzIbG0tWWIajNyJJAoxuiTkDAwWyc8V6HQBTsNMt9Oso7SAztHHnBmneVzkknLMSTye5oq5RQBi+IfE1l4cijlvHCoUeWQ/3IkGWb35KKB3Z1Fc34duLLTJrvxP4s1Cx0/WdUAxBd3KobO2HMcA3EYP8AE2MZYnjirPiL4b6f4r8XW2r61Obmxt7fyo9P2bRvyTuLg5x833RjJVecDFaVj4A8Iacwa18NaWrjo7Wyuw/FgTQBnt8S9Fu5DDoNvqOvzhtpXTrVmjU/7UrbUA991cH4sv8AxRr+qjS/FlwPB+gSFCgEP2qO5JP3JZ1OxeeoJA5Gc9a9Jvbrxfps0gstH0vVLTP7kJdtayKPQqysp9Mgj6CsnUo/HnifT59MfStF0Wzuo2guJLi5a8k2MMEoqqq5wf4jigDN8ReGV0u1tVOl6x4z1GdiIIbm48uzh2gcsi7Yo1weBtOcY96Sx+G2ra6sT+NdUQWK8x6BpIMFnGOwYjBf+h7kV6JpenxaTpNnpsDO0NpAkEbSHLFVUKMnucCrdAGPqE+n+EPCl5dW9rDb2WnWzyrBEoRflBOAB3J/U1ieFfDUy/C6HSbm5nt73ULV5bu4TAkWWfLOee4LEfhW54k8O2finR20q/eYWjyxySpEwXzAjBtp4PykgZxz71r0AeGaHYaFa+NYbHQNLm1L/hHSY1Maq091dhdpeWVsCOGMZUDIBYnaG216L4J8Sav4juNZe/tLGKztLkW9tNZytIsjAHzBuYDdtOBuAAJzjOM1T8RzefqDeDfDEcVnf6gDcaneW6BPskLHDSEjrK/Re/8AEcYzXX6Xplno2l22m6fAsFpbRiOKNewH8z3J7nmgC3RRRQAUUUUAFFFFABRRRQAVm+Ibuaw8N6neWz7J4LWSSNsA4YKSDg8daKKAM3wRo1rpfh6C5iMkt5qKLd3l1M26WeR1BJY+gzgAcAV0lFFABRRRQB//2Q==\" width=\"90\" height=\"52\"><span style=\"font-family: 宋体; font-size: 14px;\">/</span><span style=\"font-family: 宋体; font-size: 14px;\">孙宪平</span><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n<hr></hr>\r\n<table width=\"678\" height=\"21\">\r\n<tr style=\"display:none\">\r\n<td width=\"226\">&nbsp;</td>\r\n<td width=\"226\">&nbsp;</td>\r\n<td width=\"226\">&nbsp;</td>\r\n</tr>\r\n<tr>\r\n<td>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n</td>\r\n<td>\r\n<p align=\"center\"><span style=\"font-family: 宋体; font-size: 16px;\">&nbsp;</span></p>\r\n</td>\r\n<td>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n</td>\r\n</tr>\r\n</table>\r\n<p><span style=\"font-family: 宋体; font-size: 14px;\">&nbsp;</span></p>\r\n<table  height=\"40\" align=\"center\">\r\n<tr><td>\r\n</td></tr>\r\n</table>\r\n</td></tr>\r\n</table>\r\n</td></tr>\r\n</table>\r\n</body>\r\n</html>\r\n"
             # "mr_content": "1"
         }
-    # r = app.processHtml(**x)
-    r = app.process(ruyuanjilu)
+    r = app.processHtml(**x)
+    # r = app.process(ruyuanjilu)
     # r = app.segment('现病史', "患者40天前无明显诱因出现咳嗽，咳白痰，痰中带血丝，痰易咳出，晨起为重，无发热、盗汗、呼吸困难、胸痛等不适，未重视。半月前于体检时行胸部CT示：右侧肺门旁及右肺下叶占位，右肺中叶局部阻塞性不张，右肺下叶间质性改变，纵隔内多发淋巴结显示。后为明确病变性质，就诊于中国科学院肿瘤医院，行气管镜检查，检查过程中患者出现胸闷、心悸，查心电图示心房颤动，遂中止检查。2天前就诊于北京安贞医院，行心电图仍为房颤，查超声心动图示：左室运动不协调，左房增大，升主动脉增宽，三尖瓣及主动脉瓣轻度返流。予普罗帕酮治疗。现为再次明确肺内病变性质收入我院。患者自发病以来精神、睡眠、饮食可，二便如常，体重较前无明显改变。")
     print(json.dumps(r, ensure_ascii=False, indent=2))

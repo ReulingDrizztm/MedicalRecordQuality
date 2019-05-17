@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*
 
-"""
-@version: 
-@author:
-@contact:
-@software: PyCharm Community Edition
-@file: clientInterface.py
-@time: 18-10-29 上午10:44
-@description: 电子病历客户端数据接口
-"""
+# 电子病历客户端数据接口
 
 import os
 import sys
+
 cur_path = os.path.abspath(os.path.dirname(__file__))
 root_path = os.path.split(cur_path)[0]
 sys.path.append(root_path)  # 项目路径添加到系统路径
@@ -20,10 +13,11 @@ from datetime import datetime
 from Utils.MongoUtils import PullDataFromMDBUtils, PushDataFromMDBUtils
 from Utils.loadingConfigure import Properties
 from Utils.segmentWord import RunSegmentWord
-# from Utils.regularInfo import RegularInfo
+from Utils.regularInfo import RegularInfo
 from Utils.socketConnect import SocketConnect
 from suds.client import Client
 import json
+
 if cur_path.endswith('Test'):
     from RecordClientTest.mainProgram import CheckMultiRecords
     from RecordClientTest.timedTask import HospitalServerInfo
@@ -40,12 +34,12 @@ class ClientInterface(object):
         self.mongo_push_utils = PushDataFromMDBUtils()
         self.segment = RunSegmentWord()
         self.parameters = Properties()
-        self.regular_model = self.parameters.regular_model['终末']
+        self.regular_model = self.parameters.regular_model['终末'].copy()
         self.dept_list = self.parameters.dept.copy()
         self.dept_dict = self.parameters.dept_dict.copy()
         self.ward_dept = self.parameters.ward_dept.copy()
         self.run_regular = CheckMultiRecords(debug=True)
-        self.run_regular.regular_model = self.parameters.regular_model['医生端']
+        self.run_regular.regular_model = self.parameters.regular_model['医生端'].copy()
         self.database_name = self.mongo_pull_utils.mongodb_database_name
         self.collection_name = self.mongo_pull_utils.mongodb_collection_name
         # 加载规则模型
@@ -61,6 +55,110 @@ class ClientInterface(object):
         else:
             self.collection_name_doctor = self.mongo_pull_utils.mongodb_collection_name_doctor
             self.mr_client_url = self.conf_dict['mr_url'].get(self.database_ip, dict()).get('release', '')
+
+    def segmentRecord(self, json_file):
+        result = dict()
+        medical_record = dict()
+        if not (json_file.get('patient_id', '') and json_file.get('visit_id', '')):
+            return result
+        if 'id' not in json_file:
+            medical_record['_id'] = self.hospital_code + '#' + json_file.get('patient_id', '') + '#' + json_file.get(
+                'visit_id', '')
+        else:
+            medical_record['_id'] = json_file['id']
+        medical_record['patient_id'] = json_file['patient_id']
+        medical_record['visit_id'] = json_file['visit_id']
+        result.update(medical_record)  # 将id, patient_id, visit_id存入返回数据中
+        # 组合病案首页信息
+        binganshouye = dict()
+        binganshouye['pat_info'] = dict()
+        binganshouye['pat_visit'] = dict()
+        binganshouye['pat_info']['sex_name'] = json_file.get('binganshouye', dict()).get('pat_info_sex_name', '')
+        # binganshouye['pat_visit']['inp_doctor_name'] = json_file.get('doctor_name', '')  # 添加住院医师姓名
+        binganshouye['pat_visit']['age_value'] = json_file.get('binganshouye', dict()).get('pat_info_age_value', '')
+        binganshouye['pat_visit']['age_value_unit'] = json_file.get('binganshouye', dict()).get(
+            'pat_info_age_value_unit', '')
+        binganshouye['pat_visit']['marital_status_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_info_marital_status_name', '')
+        binganshouye['pat_visit']['admission_time'] = json_file.get('admission_date_time', '')  # 1207  医生端json添加入院日期
+        binganshouye['pat_visit']['discharge_time'] = json_file.get('discharge_date_time', '')  # 1207  医生端json添加出院日期
+
+        binganshouye['pat_visit']['district_discharge_from_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_discharge_from_name', '')  # 科室和病区是反的
+        if binganshouye['pat_visit']['district_discharge_from_name'] in self.dept_dict:  # 病区代码转病区名称
+            binganshouye['pat_visit']['district_discharge_from_name'] = self.dept_dict[
+                binganshouye['pat_visit']['district_discharge_from_name']]
+
+        binganshouye['pat_visit']['district_admission_to_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_admission_to_name', '')
+        if binganshouye['pat_visit']['district_admission_to_name'] in self.dept_dict:
+            binganshouye['pat_visit']['district_admission_to_name'] = self.dept_dict[
+                binganshouye['pat_visit']['district_admission_to_name']]
+
+        binganshouye['pat_visit']['dept_discharge_from_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_ward_discharge_from_name', '')
+        if binganshouye['pat_visit']['dept_discharge_from_name'] in self.dept_dict:
+            binganshouye['pat_visit']['dept_discharge_from_name'] = self.dept_dict[
+                binganshouye['pat_visit']['dept_discharge_from_name']]
+        if not binganshouye['pat_visit']['dept_discharge_from_name']:  # 没有出院科室，有出院病区，补全出院科室
+            if binganshouye['pat_visit']['district_discharge_from_name'] in self.ward_dept:
+                binganshouye['pat_visit']['dept_discharge_from_name'] = self.ward_dept[
+                    binganshouye['pat_visit']['district_discharge_from_name']]
+
+        binganshouye['pat_visit']['dept_admission_to_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_ward_admission_to_name', '')
+        if binganshouye['pat_visit']['dept_admission_to_name'] in self.dept_dict:
+            binganshouye['pat_visit']['dept_admission_to_name'] = self.dept_dict[
+                binganshouye['pat_visit']['dept_admission_to_name']]
+        if not binganshouye['pat_visit']['dept_admission_to_name']:
+            if binganshouye['pat_visit']['district_admission_to_name'] in self.ward_dept:
+                binganshouye['pat_visit']['dept_admission_to_name'] = self.ward_dept[
+                    binganshouye['pat_visit']['district_admission_to_name']]
+
+        binganshouye['pat_visit']['dept_discharge_from_code'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_discharge_from_code', '')
+        binganshouye['pat_visit']['dept_admission_to_code'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_admission_to_code', '')
+
+        binganshouye['pat_visit']['drug_allergy_name'] = json_file.get('binganshouye', dict()).get('drug_allergy_name',
+                                                                                                   '')
+        binganshouye['pat_visit']['patient_id'] = json_file['patient_id']
+        binganshouye['pat_visit']['visit_id'] = json_file['visit_id']
+        # 病案首页信息组合完毕——没有出院时间，没有入院时间  1207已添加
+        result['binganshouye'] = binganshouye  # 将病案首页信息存入返回数据中
+
+        # 判断是否有有效文书
+        file_flag = False
+
+        for file_name in self.conf_dict['english_to_chinese']:
+            result.setdefault(file_name, list())  # 将json中各病历文书内容调用分词接口分词后存入返回数据中
+            if file_name in json_file:
+                segment_result = self.segment.process(file_name, json_file[file_name])
+                if segment_result:
+                    file_flag = True  # 有有效文书
+                    if file_name == 'shangjiyishichafangjilu':
+                        src_info = list()
+                        for one_record in json_file[file_name]:
+                            src_info.append({'TOPIC': one_record.get('topic', ''),
+                                             'CAPTION_DATE_TIME': one_record.get('caption_date_time', ''),
+                                             'CREATOR_NAME': one_record.get('creator_name', '')})
+                        file_name = 'shangjiyishichafanglu'
+                        result['shangjiyishichafanglu_src'] = [{file_name: src_info}]
+                    result[file_name] = [{file_name: segment_result}]
+                    result[file_name][0].update(medical_record)
+        if not file_flag:
+            return {}
+
+        # 补充ruyuanjilu文书数据
+        if result.get('ruyuanjilu', list()):
+            if 'ruyuanjilu' in result['ruyuanjilu'][0]:
+                result['ruyuanjilu'][0]['ruyuanjilu']['diagnosis_name'] = json_file.get('binglizhenduan',
+                                                                                        list())  # 初步诊断不在 ruyuanjilu 中，而在 binglizhenduan 中
+                result['ruyuanjilu'][0]['ruyuanjilu']['last_modify_date_time'] = datetime.strftime(datetime.now(),
+                                                                                                   '%Y-%m-%d %H:%M:%S')  # 最后修改时间为保存时间
+                result['ruyuanjilu'][0]['ruyuanjilu']['creator_name'] = json_file.get('doctor_name', '')
+        # ruyuanjilu 补充信息补充完毕
+        return result
 
     def segmentRecord_new(self, json_file):
         """
@@ -89,138 +187,75 @@ class ClientInterface(object):
         binganshouye['pat_visit'] = dict()
         binganshouye['pat_info']['sex_name'] = json_file.get('binganshouye', dict()).get('pat_info_sex_name', '')
         binganshouye['pat_visit']['age_value'] = json_file.get('binganshouye', dict()).get('pat_info_age_value', '')
-        binganshouye['pat_visit']['age_value_unit'] = json_file.get('binganshouye', dict()).get('pat_info_age_value_unit', '')
-        binganshouye['pat_visit']['marital_status_name'] = json_file.get('binganshouye', dict()).get('pat_info_marital_status_name', '')
+        binganshouye['pat_visit']['age_value_unit'] = json_file.get('binganshouye', dict()).get(
+            'pat_info_age_value_unit', '')
+        binganshouye['pat_visit']['marital_status_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_info_marital_status_name', '')
         binganshouye['pat_visit']['inp_no'] = json_file.get('binganshouye', dict()).get('inp_no', '')
         binganshouye['pat_visit']['admission_time'] = json_file.get('binganshouye', dict()).get('admission_time', '')
         binganshouye['pat_visit']['discharge_time'] = json_file.get('binganshouye', dict()).get('discharge_time', '')
-        binganshouye['pat_visit']['dept_admission_to_name'] = json_file.get('binganshouye', dict()).get('pat_visit_dept_admission_to_name', '')  # dept
-        binganshouye['pat_visit']['dept_admission_to_code'] = json_file.get('binganshouye', dict()).get('pat_visit_dept_admission_to_code', '')  # code
-        binganshouye['pat_visit']['senior_doctor_name'] = json_file.get('binganshouye', dict()).get('senior_doctor_name', '')  # 主任(副主任)医师姓名
-        binganshouye['pat_visit']['attending_doctor_name'] = json_file.get('binganshouye', dict()).get('attending_doctor_name', '')  # 住院医师
-        binganshouye['pat_visit']['inp_doctor_name'] = json_file.get('binganshouye', dict()).get('inp_doctor_name', '')  # code
-        binganshouye['pat_visit']['drug_allergy_name'] = json_file.get('binganshouye', dict()).get('drug_allergy_name', '')
+        binganshouye['pat_visit']['dept_admission_to_name'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_admission_to_name', '')  # dept
+        binganshouye['pat_visit']['dept_admission_to_code'] = json_file.get('binganshouye', dict()).get(
+            'pat_visit_dept_admission_to_code', '')  # code
+        binganshouye['pat_visit']['senior_doctor_name'] = json_file.get('binganshouye', dict()).get(
+            'senior_doctor_name', '')  # 主任(副主任)医师姓名
+        binganshouye['pat_visit']['attending_doctor_name'] = json_file.get('binganshouye', dict()).get(
+            'attending_doctor_name', '')  # 住院医师
+        binganshouye['pat_visit']['inp_doctor_name'] = json_file.get('binganshouye', dict()).get('inp_doctor_name',
+                                                                                                 '')  # code
+        binganshouye['pat_visit']['drug_allergy_name'] = json_file.get('binganshouye', dict()).get('drug_allergy_name',
+                                                                                                   '')
         binganshouye['pat_visit']['patient_id'] = patient_id
         binganshouye['pat_visit']['visit_id'] = visit_id
         result['binganshouye'] = binganshouye  # 将病案首页信息存入返回数据中
 
-        # step.1 获取传过来的文书名称,
-        if 'huanzheshouye' not in json_file:
-            emr_code = json_file.get('wenshuxinxi', dict()).get('mr_class_code', '')
-            if not emr_code:
-                return {'res_flag': False, 'error_info': 'mr_class_code is empty...'}
-            if emr_code not in self.emr_record:
-                return {'res_flag': False, 'warn_info': '此文书无相关质控规则', 'emr_code': emr_code}
-            record_name = self.emr_record[emr_code]
-            record_name_cn = self.conf_dict['english_to_chinese'].get(record_name[0], '')
-            if not record_name_cn:
-                return {'res_flag': False, 'error_info': 'no record name corresponding to the emr_code', 'emr_code': emr_code, 'record_name': record_name[0]}
-        else:
-            record_name = ['binganshouye', '1']
-            record_name_cn = '病案首页'
+        # step.1 获取传过来的文书名称
+        emr_code = json_file.get('wenshuxinxi', dict()).get('mr_class_code', '')
+        if not emr_code:
+            return {'res_flag': False, 'error_info': 'mr_class_code is empty...'}
+        if emr_code not in self.emr_record:
+            return {'res_flag': False, 'warn_info': '此文书无相关质控规则', 'emr_code': emr_code}
+        record_name = self.emr_record[emr_code]
+        record_name_cn = self.conf_dict['english_to_chinese'].get(record_name[0], '')
+        if not record_name_cn:
+            return {'res_flag': False, 'error_info': 'no record name corresponding to the emr_code',
+                    'emr_code': emr_code, 'record_name': record_name[0]}
         # step.1 结束
 
-        # step.2 获取其它文书，并将非传来文书所属规则置于未启用
-        his_record = ['yizhu', 'hulitizhengyangli', 'jianchabaogao', 'jianyanbaogao']  # 需要在socket请求的数据, jianyaobaogao, huli未处理, jiancha分词处理
+        # step.2 获取额外his文书，并将非传来文书所属规则置于未启用
+        his_record = ['yizhu', 'hulitizhengyangli', 'jianchabaogao',
+                      'jianyanbaogao']  # 需要在socket请求的数据, jianyaobaogao, huli未处理, jiancha分词处理
         his_request = set()
         regular_record = self.parameters.getInfo('regular_to_record.txt')
         if json_file.get('binganshouye', dict()).get('discharge_time', ''):  # 病案首页有出院时间用环节质控，没有则用医生端质控
-            self.run_regular.regular_model = self.parameters.regular_model['环节']
-        for regular_code, regular_model in self.run_regular.regular_model.items():
-            if regular_model.get('record_name') != record_name_cn:
-                regular_model['status'] = '未启用'
-                continue
-            if regular_model.get('code') in regular_record:
-                code = regular_model.get('code')
-                if isinstance(regular_record[code], str):
-                    # if regular_record[code] in his_record:
-                    his_request.add(regular_record[code])
-                elif isinstance(regular_record[code], list):
-                    for record in regular_record[code]:
-                        # if record in his_record:
-                        his_request.add(record)
-        # for i in self.regularInfo(step):
-        #     if len(self.run_regular.regular_model.get(i.code, list())) > 6:
-        #         if i.record_name == record_name_cn:  # 根据传入文书中文名，将非该文书的规则置为不启用
-        #             self.run_regular.regular_model[i.code][6] = i.switch
-        #             if i.code in regular_record:
-        #                 if isinstance(regular_record[i.code], str):
-        #                     if regular_record[i.code] in his_record:
-        #                         his_request.add(regular_record[i.code])
-        #                 elif isinstance(regular_record[i.code], list):
-        #                     for record in regular_record[i.code]:
-        #                         if record in his_record:
-        #                             his_request.add(record)
-        #         else:
-        #             self.run_regular.regular_model[i.code][6] = '未启用'
-        # 环节质控才定时跑
-        if record_name[0] in his_request:
-            his_request.remove(record_name[0])
-        if his_request:
-            socket_app = SocketConnect()
-            for collection in his_request:
-                # 从socket获取其它文书数据，并将其存入数据库，且放入result中
-                if collection in his_record:
-                    if collection == 'yizhu':
-                        socket_result = socket_app.process(patient_id, visit_id, collection)
-                    else:
-                        socket_result = socket_app.process(patient_id, '', collection, start_time=binganshouye['pat_visit']['admission_time'])
-                    if not socket_result.get('res_flag'):
-                        continue
-                        # return socket_result
-                    if collection == 'jianchabaogao':
-                        result[collection] = [{collection: {'exam_report': socket_result.get(collection, list())}}]
-                        self.mongo_push_utils.pushData('mrq_jianchabaogao', {collection: {'exam_report': socket_result.get(collection, list())},
-                                                                             '_id': _id,
-                                                                             'patient_id': patient_id,
-                                                                             'visit_id': visit_id,
-                                                                             'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-                    elif collection == 'jianyanbaogao':
-                        result[collection] = [{collection: {'lab_report': socket_result.get(collection, list())}}]
-                        self.mongo_push_utils.pushData('mrq_jianyanbaogao', {collection: {'lab_report': socket_result.get(collection, list())},
-                                                                             '_id': _id,
-                                                                             'patient_id': patient_id,
-                                                                             'visit_id': visit_id,
-                                                                             'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-                    else:
-                        result[collection] = [{collection: socket_result.get(collection, list())}]
-                        self.mongo_push_utils.pushData('mrq_jianyanbaogao', {collection: socket_result.get(collection, list()),
-                                                                             '_id': _id,
-                                                                             'patient_id': patient_id,
-                                                                             'visit_id': visit_id,
-                                                                             'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-                # 从MRQ库获取其它文书数据，放入result中
+            self.run_regular.regular_model = self.parameters.regular_model['环节'].copy()
+            step = '环节'
+        else:
+            step = '医生端'
+        for i in self.regularInfo(step):
+            if len(self.run_regular.regular_model.get(i.code, list())) > 6:
+                if i.record_name == record_name_cn:  # 根据传入文书中文名，将非该文书的规则置为不启用
+                    self.run_regular.regular_model[i.code][6] = i.switch
+                    if i.code in regular_record:
+                        if isinstance(regular_record[i.code], str):
+                            if regular_record[i.code] in his_record:
+                                his_request.add(regular_record[i.code])
+                        elif isinstance(regular_record[i.code], list):
+                            for record in regular_record[i.code]:
+                                if record in his_record:
+                                    his_request.add(record)
                 else:
-                    conn = self.mongo_push_utils.connectCollection(database_name=self.database_name, collection_name=collection)
-                    mongo_result = conn.find_one({'_id': _id}) or dict()
-                    if not mongo_result:
-                        continue
-                    else:
-                        result[collection] = [mongo_result]
+                    self.run_regular.regular_model[i.code][6] = '未启用'
+        if his_request:
+            # socket_app = SocketConnect()
+            for collection in his_request:
+                print(collection)
+                # mongo_result = socket_app.process(patient_id, visit_id, collection)
+                # 保存socket查询的数据
         # step.2 结束
 
-        if 'huanzheshouye' in json_file:
-            result['binganshouye'] = json_file.get('huanzheshouye', dict())
-            result['shouyeshoushu'] = [{'shouyeshoushu': json_file.get('shouyeshoushu', list())}]
-            result['shouyezhenduan'] = [{'shouyezhenduan': json_file.get('shouyezhenduan', list())}]
-            self.mongo_push_utils.pushData('mrq_binganshouye', {'binganshouye': json_file.get('huanzheshouye', dict()),
-                                                                '_id': _id,
-                                                                'patient_id': patient_id,
-                                                                'visit_id': visit_id,
-                                                                'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-            self.mongo_push_utils.pushData('mrq_shouyeshoushu', {'shouyeshoushu': json_file.get('shouyeshoushu', list()),
-                                                                 '_id': _id,
-                                                                 'patient_id': patient_id,
-                                                                 'visit_id': visit_id,
-                                                                 'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-            self.mongo_push_utils.pushData('mrq_shouyezhenduan', {'shouyezhenduan': json_file.get('shouyezhenduan', list()),
-                                                                  '_id': _id,
-                                                                  'patient_id': patient_id,
-                                                                  'visit_id': visit_id,
-                                                                  'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')})
-            return result
-
-        # step.3 获取质控文书分词结果
+        # step.3 获取分词结果
         wenshuxinxi = json_file.get('wenshuxinxi', dict())
         seg_result = self.segment.processHtml(**wenshuxinxi)
         if not seg_result.get('res_flag'):
@@ -237,8 +272,10 @@ class ClientInterface(object):
                 conn_src = self.mongo_push_utils.connectCollection(database_name=self.database_name,
                                                                    collection_name=conn_name_src)
                 record_id_result = conn_src.find_one({'_id': _id}) or dict()
-                record_id_list = [value.get('file_unique_id', '') for value in record_id_result.get(record_name[0], list())]
-                record_index = -1 if record_id not in record_id_list else record_id_list.index(record_id)  # 获取此次文书在src出现的位置，未出现过则为-1
+                record_id_list = [value.get('file_unique_id', '') for value in
+                                  record_id_result.get(record_name[0], list())]
+                record_index = -1 if record_id not in record_id_list else record_id_list.index(
+                    record_id)  # 获取此次文书在src出现的位置，未出现过则为-1
                 record_id_result.setdefault(record_name[0], list())
                 record_id_result.setdefault('_id', _id)
                 if record_index == -1:
@@ -249,7 +286,8 @@ class ClientInterface(object):
 
                 # 存储分词结果
                 if record_name[1] == '1':
-                    self.mongo_push_utils.pushData(conn_name, {'_id': _id, record_name[0]: seg_result[record_name[0]]})  # 单个文件分词后的
+                    self.mongo_push_utils.pushData(conn_name,
+                                                   {'_id': _id, record_name[0]: seg_result[record_name[0]]})  # 单个文件分词后的
                 else:
                     conn = self.mongo_push_utils.connectCollection(database_name=self.database_name,
                                                                    collection_name=conn_name)
@@ -262,9 +300,8 @@ class ClientInterface(object):
                         conn_result.get(record_name[0], list())[record_index] = seg_result[record_name[0]]
                     self.mongo_push_utils.pushData(conn_name, conn_result)
             # 结束：原始文书及其分词结果存储
-
-            if 'mr_content_html' in wenshuxinxi:
-                wenshuxinxi.pop('mr_content_html')
+            if 'mr_content' in wenshuxinxi:
+                wenshuxinxi.pop('mr_content')
             if record_name[1] == '1':
                 result[record_name[0]] = [{record_name[0]: seg_result[record_name[0]]}]
             else:
@@ -292,18 +329,8 @@ class ClientInterface(object):
         """
         json_file为传过来的原始数据
         """
-        if json_file.get('pageSource') == '1':
-            return {'print_info': '您在下诊断，无法进行内涵质控'}
-        if json_file.get('pageSource') == '2':
-            return {'print_info': '目前为浏览病历，请点击“保存”用以质控病历'}
-        if json_file.get('pageSource') == '6':
-            return {'print_info': '您在下医嘱，无法进行内涵质控'}
         if json_file.get('pageSource') == '8':
-            return {'print_info': '欢迎使用AI病历内涵质控'}
-        if json_file.get('huanzheshouye'):
-            return self.processJsonFileBingan(json_file)
-        if json_file.get('pageSource') != '0':
-            return {'print_info': '非保存病历状态码'}
+            return dict()  # 切换的时候会自动传入ruyuanjilu, 质控不做处理
         json_result = self.segmentRecord_new(json_file)
         if not json_result.get('res_flag'):
             return json_result
@@ -312,20 +339,23 @@ class ClientInterface(object):
         doctor_dept = json_result.get('doctor_dept', '')  # 记录医生病区
         key = json_result.get('_id', '')
 
-        # 先看连的是否是测试mongo库，如果是测试库，直接进行推送，否则再判断账号是否是测试账号
+        # 先看连的是否是测试mongo库，如果是测试库，直接进行推送，否则判定文书是状态(新建或保存)，再判断账号非测试账号
         push_flag = False
         if self.collection_name_doctor == self.mongo_pull_utils.mongodb_collection_name_doctor + '_test':
             push_flag = True
         else:
-            if not self.isTestAccount(doctor_name):  # 如果不是测试账号
-                push_flag = True
+            if json_file.get('pageSource') == '3' or (json_file.get('pageSource') == '0'):
+                test_flag = self.isTestAccount(doctor_name)
+                if not test_flag:  # 如果不是测试账号
+                    push_flag = True
 
         if push_flag:  # 保存原始数据
             patient_id = json_file.get('patient_id', '')
             if patient_id:
                 original_collection = self.collection_name_doctor + '_original'  # 测试接口保存到测试库，正式接口保存到正式库
                 ori_id = self.hospital_code + '#' + patient_id
-                ori_json = {'_id': ori_id, 'info': json_file, 'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')}
+                ori_json = {'_id': ori_id, 'info': json_file,
+                            'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')}
                 self.run_regular.PushData.pushData(original_collection, ori_json)  # 保存原始json数据
 
         result = dict()
@@ -386,11 +416,13 @@ class ClientInterface(object):
                         push_data['code_list'].append(regular_code)
                 # 更新完毕
 
-                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if 'code' in value]  # 上一次的质控结果
+                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if
+                              'code' in value]  # 上一次的质控结果
                 this_value = [value['code'] for value in result[key]['pat_value'] if 'code' in value]
 
                 if set(last_value) != set(this_value):
-                    diff_code = set(last_value).difference(set(this_value)) | set(this_value).difference(set(last_value))
+                    diff_code = set(last_value).difference(set(this_value)) | set(this_value).difference(
+                        set(last_value))
                     push_data['modify_num'].append(len(push_data['doctor_value_list']))  # 第几次有修改 从0开始
                     if 'modify_details' in push_data:
                         push_data['modify_details'].append({'num': len(push_data['doctor_value_list']),
@@ -448,7 +480,8 @@ class ClientInterface(object):
                 push_data['doctor_id'] = doctor_id
                 push_data['doctor_dept'] = doctor_dept
                 push_data['control_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')  # 记录保存保存时间
-                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if 'code' in value]  # 上一次的质控结果
+                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if
+                              'code' in value]  # 上一次的质控结果
                 if last_value:
                     push_data['modify_num'].append(len(push_data['doctor_value_list']))  # 第几次有修改 从0开始
                     if 'modify_details' in push_data:
@@ -485,61 +518,54 @@ class ClientInterface(object):
         doctor_id = json_file.get('yonghuxinxi', dict()).get('user_id', '')  # 记录医生id
         doctor_dept = json_file.get('yonghuxinxi', dict()).get('user_dept', '')  # 记录医生病区
         if not (patient_id and visit_id):
-            return {'res_flag': False, 'error_info': 'no patient_id or visit_id in json_file.binganshouye...'}
+            return {'res_flag': False, 'error_info': 'no patient_id or visit_id'}
+        socket_app = SocketConnect()
         key = '{}#{}#{}'.format(self.hospital_code, patient_id, visit_id)
-        json_result = self.segmentRecord_new(json_file)
-        # if 'huanzheshouye' in json_file:
-        #     json_result = dict()
-        #     json_result['binganshouye'] = json_file['huanzheshouye']
-        #     json_result['patient_id'] = patient_id
-        #     json_result['visit_id'] = visit_id
-        #     json_result['_id'] = key
-        # else:
-        #     conn_bingan = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
-        #                                                           collection_name='binganshouye')
-        #     json_result = conn_bingan.find_one({'_id': key}) or dict()
-        # collection_list = ['shouyeshoushu', 'shouyezhenduan', 'siwangjilu', 'ruyuanjilu', 'yizhu', 'shoushujilu', 'jianchabaogao']
-        # # 文书内容存储在 mrq_文书名称
-        # for data in collection_list:
-        #     if data in json_file:
-        #         json_result[data] = [{data: json_file[data]}]
-        #         continue
-        #     collection = 'mrq_{}'.format(data)
-        #     conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
-        #                                                    collection_name=collection)
-        #     mongo_result = conn.find_one({'_id': key}) or dict()
-        #     json_result[data] = [mongo_result]
-        #
-        # # yizhu, jianchabaogao 从socket取
-
+        conn_bingan = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
+                                                              collection_name='binganshouye')
+        json_result = conn_bingan.find_one({'_id': key}) or dict()
+        if not json_result:
+            json_result = socket_app.process(patient_id, visit_id, 'binganshouye')
+            if not json_result.get('res_flag'):
+                return {'res_flag': False, 'error_info': 'no binganshouye data in socket'}
+        collection_list = ['shouyeshoushu', 'shouyezhenduan', 'siwangjilu', 'ruyuanjilu', 'yizhu', 'shoushujilu',
+                           'jianchabaogao']  # 目前只处理结构化数据
+        for collection in collection_list:
+            conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
+                                                           collection_name=collection)
+            mongo_result = conn.find_one({'_id': key})
+            if not mongo_result:
+                mongo_result = socket_app.process(patient_id, visit_id, collection)
+                if mongo_result.get('res_flag'):
+                    json_result[collection] = [mongo_result]
+            else:
+                json_result[collection] = [mongo_result]
         # 先看连的是否是测试表，如果是测试表，直接进行推送，否则判定文书是状态(新建或保存)，再判断账号非测试账号
         push_flag = False
         if self.collection_name_doctor == self.mongo_pull_utils.mongodb_collection_name_doctor + '_test':
             push_flag = True
         else:
-            test_flag = self.isTestAccount(doctor_name)
-            if not test_flag:  # 如果不是测试账号
-                push_flag = True
+            if json_file.get('pageSource') == '3' or (json_file.get('pageSource') == '0'):
+                test_flag = self.isTestAccount(doctor_name)
+                if not test_flag:  # 如果不是测试账号
+                    push_flag = True
 
         if push_flag and patient_id:  # 保存原始数据
             original_collection = self.collection_name_doctor + '_original'  # 测试接口保存到测试库，正式接口保存到正式库
             ori_id = self.hospital_code + '#' + patient_id
-            ori_json = {'_id': ori_id, 'info': json_file, 'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')}
+            ori_json = {'_id': ori_id, 'info': json_file,
+                        'batchno': datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')}
             self.run_regular.PushData.pushData(original_collection, ori_json)  # 保存原始json数据
 
         result = dict()
         self.run_regular.all_result = dict()
-        self.run_regular.regular_model = self.parameters.regular_model['医生端']
         # 只质控病案首页相关规则，非病案首页规则置为未启用
-        for regular_code, regular_model in self.run_regular.regular_model.items():
-            if regular_model.get('record_name') != '病案首页':
-                regular_model['status'] = '未启用'
-        # for i in self.regularInfo('医生端'):
-        #     if len(self.run_regular.regular_model.get(i.code, list())) > 6:
-        #         if i.record_name == '病案首页':
-        #             self.run_regular.regular_model[i.code][6] = i.switch
-        #         else:
-        #             self.run_regular.regular_model[i.code][6] = '未启用'
+        for i in self.regularInfo('医生端'):
+            if len(self.run_regular.regular_model.get(i.code, list())) > 6:
+                if i.record_name == '病案首页':
+                    self.run_regular.regular_model[i.code][6] = i.switch
+                else:
+                    self.run_regular.regular_model[i.code][6] = '未启用'
         for collection_name, collection_rule_func in self.conf_dict['func'].items():
             for func in collection_rule_func:
                 if func not in self.run_regular.__dir__():
@@ -594,11 +620,13 @@ class ClientInterface(object):
                         push_data['code_list'].append(regular_code)
                 # 更新完毕
 
-                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if 'code' in value]  # 上一次的质控结果
+                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if
+                              'code' in value]  # 上一次的质控结果
                 this_value = [value['code'] for value in result[key]['pat_value'] if 'code' in value]
 
                 if set(last_value) != set(this_value):
-                    diff_code = set(last_value).difference(set(this_value)) | set(this_value).difference(set(last_value))
+                    diff_code = set(last_value).difference(set(this_value)) | set(this_value).difference(
+                        set(last_value))
                     push_data['modify_num'].append(len(push_data['doctor_value_list']))  # 第几次有修改 从0开始
                     if 'modify_details' in push_data:
                         push_data['modify_details'].append({'num': len(push_data['doctor_value_list']),
@@ -656,7 +684,8 @@ class ClientInterface(object):
                 push_data['doctor_id'] = doctor_id
                 push_data['doctor_dept'] = doctor_dept
                 push_data['control_date'] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')  # 记录保存保存时间
-                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if 'code' in value]  # 上一次的质控结果
+                last_value = [value['code'] for value in push_data['doctor_value_list'][-1] if
+                              'code' in value]  # 上一次的质控结果
                 if last_value:
                     push_data['modify_num'].append(len(push_data['doctor_value_list']))  # 第几次有修改 从0开始
                     if 'modify_details' in push_data:
@@ -694,7 +723,8 @@ class ClientInterface(object):
                 self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                 patient_info = mr_data.get('INHOSPITAL_PATIENT_INFO', list())
             else:
-                patient_info = self.hospitalServerInfo.inhospital_pat_data.get(ward_code).get('INHOSPITAL_PATIENT_INFO', list())
+                patient_info = self.hospitalServerInfo.inhospital_pat_data.get(ward_code).get('INHOSPITAL_PATIENT_INFO',
+                                                                                              list())
         else:
             if not self.hospitalServerInfo.discharge_pat_data.get(ward_code, dict()):
                 mr_data = web_service.service.EmrOutHospitalData(ward_code)
@@ -702,7 +732,8 @@ class ClientInterface(object):
                 self.hospitalServerInfo.discharge_pat_data[ward_code] = mr_data
                 patient_info = mr_data.get('DISCHARGE_PATIENT_INFO', list())
             else:
-                patient_info = self.hospitalServerInfo.discharge_pat_data.get(ward_code).get('DISCHARGE_PATIENT_INFO', list())
+                patient_info = self.hospitalServerInfo.discharge_pat_data.get(ward_code).get('DISCHARGE_PATIENT_INFO',
+                                                                                             list())
         query_id = dict()
         for data in patient_info:
             patient = data.get('PATIENT_ID')
@@ -769,25 +800,30 @@ class ClientInterface(object):
                 modify_tmp.setdefault(k, 0)
                 modify_tmp[k] += 1
         sheet_info = [{'code': k,
-                       'regular_name': self.regular_model[k].get('regular_classify', ''),
-                       'regular_details': self.regular_model[k].get('regular_details', ''),
+                       'regular_name': self.regular_model[k][0],
+                       'regular_details': self.regular_model[k][1],
                        'value1': v,
-                       'value2': modify_tmp.get(k, 0)} for k, v in res_tmp.items() if (regular_name and self.regular_model[k].get('regular_classify', '') in regular_name) or not regular_name]
+                       'value2': modify_tmp.get(k, 0)} for k, v in res_tmp.items() if
+                      (regular_name and self.regular_model[k][0] in regular_name) or not regular_name]
         # regular_name, regular_details 从质控结果数据库中取得，必为已启用规则
         remind_num = 0
         sheet_info.sort(key=lambda x: x['value1'], reverse=True)
-        regular_model = self.parameters.regular_model[step]
+        regular_model = self.parameters.regular_model[step].copy()
         for regular_code in regular_model:  # excel 中 step 表开启的规则
             regular_info = regular_model.get(regular_code)  # 规则导出列表信息
-            if regular_info.get('status') == '启用':
+            if regular_info[6] == '启用':
                 remind_num += 1
-            else:
-                continue
-            if regular_code not in res_tmp:  # 规则启用且没有提醒过
-                if (regular_name and regular_info.get('regular_classify') in regular_name) or not regular_name:  # 规则名称
+            if regular_code not in res_tmp and regular_info[6] == '启用':  # 规则启用且没有提醒过
+                if regular_name and regular_info[0] in regular_name:  # 规则名称
                     sheet_info.append({'code': regular_code,
-                                       'regular_name': regular_info.get('regular_classify'),
-                                       'regular_details': regular_info.get('regular_details'),
+                                       'regular_name': regular_info[0],
+                                       'regular_details': regular_info[1],
+                                       'value1': 0,
+                                       'value2': 0})
+                if not regular_name:
+                    sheet_info.append({'code': regular_code,
+                                       'regular_name': regular_info[0],
+                                       'regular_details': regular_info[1],
                                        'value1': 0,
                                        'value2': 0})
         result = dict()
@@ -803,22 +839,23 @@ class ClientInterface(object):
         result = dict()
         record_name = list()
         regular_name = list()
-        regular_model = self.parameters.regular_model[step]
+        regular_model = self.parameters.regular_model[step].copy()
         for regular_code, value in regular_model.items():
-            if value.get('status') != '启用':
+            if not (len(value) > 6 and value[6] == '启用'):
                 continue
-            if not value.get('record_name'):
-                continue
-            name = value.get('record_name')
+            if '--' in value[2]:
+                name = value[2].split('--')[0]
+            else:
+                name = value[2]
             if name not in record_name:
                 record_name.append(name)
-            if not value.get('regular_classify'):
+            if value[0] in regular_name:
                 continue
-            regular_classify = value.get('regular_classify')
-            if regular_classify in regular_name:
-                continue
-            if (record and name == record) or not record:
-                regular_name.append(regular_classify)
+            if record:
+                if name == record:
+                    regular_name.append(value[0])
+            else:
+                regular_name.append(value[0])
         result['record_name'] = record_name
         result['record_name'].insert(0, '全部')
         result['regular_name'] = regular_name
@@ -830,23 +867,25 @@ class ClientInterface(object):
         文书名称所包含的规则名称
         """
         result = dict()
-        regular_model = self.parameters.regular_model[step]
+        regular_model = self.parameters.regular_model[step].copy()
         for regular_code, value in regular_model.items():  # 从 regular_model.xlsx 中读取文书名称及规则名称
-            if value.get('status') != '启用':
-                continue
-            if not value.get('record_name'):
-                continue
-            name = value.get('record_name')
-            if record and record != name:
+            if not (len(value) > 6 and value[6] == '启用'):
                 continue
             # 获取文书名称
+            if '--' in value[2]:
+                name = value[2].split('--')[0]
+            else:
+                name = value[2]
+
             # 文书名称作为 key 值
             result.setdefault(name, list())
-            if not value.get('regular_classify'):
-                continue
-            regular_classify = value.get('regular_classify')
-            if regular_classify not in result[name]:
-                result[name].append(regular_classify)
+            if value[0] not in result[name]:
+                result[name].append(value[0])
+        if record:
+            if record in result:
+                return {record: result[record]}
+            else:
+                return {}
         return result
 
     def code_to_regular(self, code='', step='医生端'):
@@ -854,14 +893,15 @@ class ClientInterface(object):
         规则代码所对应的规则名称
         """
         result = dict()
-        regular_model = self.parameters.regular_model[step]
+        regular_model = self.parameters.regular_model[step].copy()
         for regular_code, value in regular_model.items():  # 从 regular_model.xlsx 中读取文书名称及规则名称
             # 获取文书名称
-            if code and code != regular_code:
-                continue
-            if not value.get('regular_classify'):
-                continue
-            result[regular_code] = value.get('regular_classify')
+            result[regular_code] = value[0]
+        if code:
+            if code in result:
+                return {code: result[code]}
+            else:
+                return {}
         return result
 
     def code_to_record(self, code='', step='医生端'):
@@ -869,15 +909,19 @@ class ClientInterface(object):
         规则代码对应的文书名称
         """
         result = dict()
-        regular_model = self.parameters.regular_model[step]
+        regular_model = self.parameters.regular_model[step].copy()
         for regular_code, value in regular_model.items():  # 从 regular_model.xlsx 中读取文书名称及规则名称
             # 获取文书名称
-            if not value.get('record_name'):
-                continue
-            if code and regular_code != code:
-                continue
-            name = value.get('record_name')
+            if '--' in value[2]:
+                name = value[2].split('--')[0]
+            else:
+                name = value[2]
             result[regular_code] = name
+        if code:
+            if code in result:
+                return {code: result[code]}
+            else:
+                return {}
         return result
 
     def ward_to_code(self, ward_name):
@@ -967,7 +1011,7 @@ class ClientInterface(object):
                         'modified': v['modified'],
                         'not_modified': v['not_modified'],
                         'total_num': total,  # 科室患者总数————电子病历服务器接口
-                        'ratio': round(v['modified']/v['num'], 3)} for k, v in result.items()]
+                        'ratio': round(v['modified'] / v['num'], 3)} for k, v in result.items()]
         result_list.sort(key=lambda x: x['ratio'], reverse=True)
         return result_list
 
@@ -1014,7 +1058,8 @@ class ClientInterface(object):
             query_id = list(query_web.keys())
         query_id = list(query_id)
         search_field['_id'] = {'$in': query_id}  # 在院/出院患者
-        mongo_result = conn.find(search_field, {'_id': 0, 'increase_code': 1, 'decrease_code': 1, 'code_list': 1}).batch_size(500)
+        mongo_result = conn.find(search_field,
+                                 {'_id': 0, 'increase_code': 1, 'decrease_code': 1, 'code_list': 1}).batch_size(500)
         tmp = dict()  # 修改计数
         tmp_total = dict()
         for data in mongo_result:
@@ -1065,7 +1110,8 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.inhospital_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(data['DEPT_NAME']) == ward_name:
+                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_NAME']) == ward_name:
                     if 'USER_NAME' in data:
                         doctor_list.append(data['USER_NAME'])
         else:
@@ -1077,13 +1123,16 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.discharge_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
+                if ward_name == '全部' or ward_name == '医务处' or data[
+                    'DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
                     if 'DOCTOR_IN_CHARGE' in data:
                         doctor_list.append(data['DOCTOR_IN_CHARGE'])
         conn = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
                                                        collection_name=self.collection_name_doctor)
         show_field = {'doctor_value_list.code': 1, 'doctor_value_list.creator_name': 1, 'doctor_value_list.name': 1}
-        code_list = [k for k, value in self.code_to_record(step='医生端').items() if value == record_name or (not record_name)]
+        code_list = [k for k, value in self.code_to_record(step='医生端').items() if
+                     value == record_name or (not record_name)]
         code_to_regular = dict()
         for i in code_list:
             code_to_regular.update(self.code_to_regular(i))
@@ -1113,7 +1162,8 @@ class ClientInterface(object):
                 if this_code == last_dict[doctor_name]:  # 无修改
                     continue
                 else:
-                    diff_code = last_dict[doctor_name].difference(this_code) | this_code.difference(last_dict[doctor_name])  # 上次与本次不同的规则码
+                    diff_code = last_dict[doctor_name].difference(this_code) | this_code.difference(
+                        last_dict[doctor_name])  # 上次与本次不同的规则码
                     for c in diff_code:
                         if regular_name:
                             if self.code_to_regular(c).get(c) != regular_name:
@@ -1134,9 +1184,9 @@ class ClientInterface(object):
         result = dict(sorted(result.items(), key=lambda x: x[1]['total_num'], reverse=True))
         return result
 
-    def getPatientInfo(self, ward_name='', show_num=10, page_num=0, patient_id='', name='', details='', in_hospital=True):
+    def getPatientInfo(self, ward_name='', show_num=10, page_num=0, patient_id='', name='', details='',
+                       in_hospital=True):
         """
-        todo 环节质控列表展示
         只展示最后一次有问题的
         问题条数：历史问题数
         修改数：修改条数
@@ -1144,30 +1194,29 @@ class ClientInterface(object):
         dept_code: 病区名称或病区代码
         """
         collection = self.mongo_pull_utils.connection(collection_name=self.collection_name_doctor)
-        collection_click = self.mongo_pull_utils.connection(collection_name=self.collection_name_doctor+'_click')
+        collection_click = self.mongo_pull_utils.connection(collection_name=self.collection_name_doctor + '_click')
         result = dict()
         query_field = {'doctor_value.code': {'$exists': True}}  # 存在问题
         # 获取全部分类的患者信息
-        # todo 临时注释
-        # query_id = set()
-        # query_web = dict()
-        # if ward_name == '全部' or ward_name == '医务处':
-        #     for one_ward_name in self.ward_dept:
-        #         ward_code = self.ward_to_code(one_ward_name)
-        #         query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)
-        #         query_id.update(set(query_web.keys()))
-        # elif ward_name in self.ward_dept.values():
-        #     for one_ward_name, dept in self.ward_dept.items():
-        #         if ward_name == dept:
-        #             ward_code = self.ward_to_code(one_ward_name)
-        #             query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)
-        #             query_id.update(set(query_web.keys()))
-        # else:
-        #     ward_code = self.ward_to_code(ward_name)
-        #     query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)  # 获取在院或出院病人id号
-        #     query_id = list(query_web.keys())
-        # query_id = list(query_id)
-        # query_field['_id'] = {'$in': query_id}
+        query_id = set()
+        query_web = dict()
+        if ward_name == '全部' or ward_name == '医务处':
+            for one_ward_name in self.ward_dept:
+                ward_code = self.ward_to_code(one_ward_name)
+                query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)
+                query_id.update(set(query_web.keys()))
+        elif ward_name in self.ward_dept.values():
+            for one_ward_name, dept in self.ward_dept.items():
+                if ward_name == dept:
+                    ward_code = self.ward_to_code(one_ward_name)
+                    query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)
+                    query_id.update(set(query_web.keys()))
+        else:
+            ward_code = self.ward_to_code(ward_name)
+            query_web = self.inHospitalPat(in_hospital=in_hospital, ward_code=ward_code)  # 获取在院或出院病人id号
+            query_id = list(query_web.keys())
+        query_id = list(query_id)
+        query_field['_id'] = {'$in': query_id}
         if ward_name in self.ward_dept:
             if in_hospital:
                 query_field['pat_info.district_admission_to_name'] = ward_name
@@ -1195,16 +1244,16 @@ class ClientInterface(object):
             except:
                 page_num = 0
         pipeline = [
-                    {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]},
-                                  'pat_info': 1,
-                                  'code_list': 1,
-                                  'modify_num': 1,
-                                  'control_date': 1}},  # 查看是否修改
-                    {'$unwind': '$doctor_value'},
-                    {'$match': query_field},
-                    {'$sort': {'_id': 1}},
-                    {'$skip': page_num*show_num},
-                    {'$limit': show_num}
+            {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]},
+                          'pat_info': 1,
+                          'code_list': 1,
+                          'modify_num': 1,
+                          'control_date': 1}},  # 查看是否修改
+            {'$unwind': '$doctor_value'},
+            {'$match': query_field},
+            {'$sort': {'_id': 1}},
+            {'$skip': page_num * show_num},
+            {'$limit': show_num}
         ]
         query_result = collection.aggregate(pipeline, allowDiskUse=True)
         count_result = collection.aggregate([{'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]},
@@ -1220,7 +1269,8 @@ class ClientInterface(object):
         result['show_num'] = show_num
         result['info'] = list()
         for data_index, data_value in enumerate(query_result):
-            data_value['problem_num'] = len(data_value.get('content', list()))+len(data_value.get('code_list', list()))  # 统计问题条数=历史问题数
+            data_value['problem_num'] = len(data_value.get('content', list())) + len(
+                data_value.get('code_list', list()))  # 统计问题条数=历史问题数
             data_value['unmodified_num'] = len(data_value.get('doctor_value', list()))  # 最后一次问题数=未修改问题数
             data_value['modify_num'] = data_value['problem_num'] - data_value['unmodified_num']  # 历史问题数-最后一次问题数=修改问题数
             if data_value['modify_num'] == 0:
@@ -1228,25 +1278,37 @@ class ClientInterface(object):
             else:
                 data_value['is_modified'] = True
             data_value['pat_info']['machine_score'] = sum([v['score'] for v in data_value.get('doctor_value', list())])
-            # todo 临时注释
-            # if data_value['_id'] in query_web:
-            #     if query_web[data_value['_id']].get('admission_time'):
-            #         data_value['pat_info']['admission_time'] = query_web[data_value['_id']].get('admission_time')
-            #     if query_web[data_value['_id']].get('discharge_time'):
-            #         data_value['pat_info']['discharge_time'] = query_web[data_value['_id']].get('discharge_time')
+            if data_value['_id'] in query_web:
+                if query_web[data_value['_id']].get('admission_time'):
+                    data_value['pat_info']['admission_time'] = query_web[data_value['_id']].get('admission_time')
+                if query_web[data_value['_id']].get('discharge_time'):
+                    data_value['pat_info']['discharge_time'] = query_web[data_value['_id']].get('discharge_time')
             data_value['click_count'] = 0
             data_value['click_icon'] = 0
             click_result = collection_click.find_one({'_id': data_value['pat_info']['patient_id']})
             if click_result:
                 if click_result.get('visit_id') == data_value['pat_info']['visit_id']:
-                    if data_value['doctor_value'][0].get('doctor_name', '') and data_value['doctor_value'][0].get('doctor_id', ''):
+                    if data_value['doctor_value'][0].get('doctor_name', '') and data_value['doctor_value'][0].get(
+                            'doctor_id', ''):
 
-                        doctor_key = '{}#{}'.format(data_value['doctor_value'][0].get('doctor_name', ''), data_value['doctor_value'][0]['doctor_id'])
+                        doctor_key = '{}#{}'.format(data_value['doctor_value'][0].get('doctor_name', ''),
+                                                    data_value['doctor_value'][0]['doctor_id'])
 
                         if doctor_key in click_result.get('click_info', dict()):
                             data_value['click_count'] = click_result['click_info'][doctor_key]
                         if doctor_key in click_result.get('click_info_icon', dict()):
                             data_value['click_icon'] = click_result['click_info_icon'][doctor_key]
+
+            # if data_value['pat_info']['patient_id'] in click_count:
+            #     if data_value['pat_info']['visit_id'] == click_count[data_value['pat_info']['patient_id']]['visit_id']:
+            #         for k, v in click_count.get(data_value['pat_info']['patient_id'], dict()).get('click_info_icon', dict()).items():
+            #             if data_value['doctor_value'][0]['creator_name'] in k:  # todo 上多文书后改成doctor_name
+            #                 data_value['click_icon'] = v
+            #                 break
+            #         for k, v in click_count.get(data_value['pat_info']['patient_id'], dict()).get('click_info', dict()).items():
+            #             if data_value['doctor_value'][0]['creator_name'] in k:
+            #                 data_value['click_count'] = v
+            #                 break
             result['info'].append(data_value)
         return result
 
@@ -1267,8 +1329,7 @@ class ClientInterface(object):
         else:
             key = 'click_info'
         inc_key = '{}.{}#{}'.format(key, doctor_name, doctor_id)
-        conn_click = self.mongo_push_utils.connectCollection(database_name=self.database_name,
-                                                             collection_name=self.collection_name_doctor+'_click')
+        conn_click = self.mongo_pull_utils.connection(collection_name=self.collection_name_doctor + '_click')
         if conn_click.find_one({'_id': patient_id, 'visit_id': visit_id}, {}):
             result = conn_click.update({'_id': patient_id}, {"$inc": {inc_key: 1}}, upsert=True)
             if result and isinstance(result, dict) and 'updatedExisting' in result:
@@ -1286,7 +1347,7 @@ class ClientInterface(object):
                              'visit_id': visit_id,
                              'click_info_icon': {},
                              key: {'{}#{}'.format(doctor_name, doctor_id): 1}}
-            result = self.run_regular.PushData.pushData(self.collection_name_doctor+'_click', push_data)
+            result = self.run_regular.PushData.pushData(self.collection_name_doctor + '_click', push_data)
             if result:
                 return {'res_flag': result}
             else:
@@ -1314,12 +1375,12 @@ class ClientInterface(object):
         match_field['_id'] = {'$in': query_id}
         collection = self.mongo_pull_utils.connection(collection_name=self.collection_name_doctor)
         pipeline = [
-                    {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]},
-                                  'pat_info': 1,
-                                  'modify_num': 1}},
-                    {'$unwind': '$doctor_value'},
-                    {'$match': match_field},
-                    {'$group': query_field},
+            {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]},
+                          'pat_info': 1,
+                          'modify_num': 1}},
+            {'$unwind': '$doctor_value'},
+            {'$match': match_field},
+            {'$group': query_field},
         ]
         mongo_result = collection.aggregate(pipeline, allowDiskUse=True)
         for data in mongo_result:
@@ -1369,7 +1430,8 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.inhospital_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(data['DEPT_NAME']) == ward_name:
+                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_NAME']) == ward_name:
                     result.setdefault(data['USER_ID'], dict())  # {医生ID：{doctor_name：名称，ward：病区，pat_num：病人数}}
                     result[data['USER_ID']]['doctor_name'] = data['USER_NAME']
                     result[data['USER_ID']]['ward'] = data['DEPT_NAME']
@@ -1388,7 +1450,8 @@ class ClientInterface(object):
                         self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                         patient_info += mr_data.get('INHOSPITAL_PATIENT_INFO', list())
                     else:
-                        patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('INHOSPITAL_PATIENT_INFO', list())
+                        patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get(
+                            'INHOSPITAL_PATIENT_INFO', list())
             elif ward_name in self.ward_dept.values():
                 for one_ward_name, dept in self.ward_dept.items():
                     if ward_name == dept:
@@ -1399,7 +1462,8 @@ class ClientInterface(object):
                             self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                             patient_info += mr_data.get('INHOSPITAL_PATIENT_INFO', list())
                         else:
-                            patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('INHOSPITAL_PATIENT_INFO', list())
+                            patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get(
+                                'INHOSPITAL_PATIENT_INFO', list())
             else:
                 ward_code = self.ward_to_code(ward_name)
                 if not self.hospitalServerInfo.inhospital_pat_data.get(ward_code, dict()):
@@ -1408,7 +1472,8 @@ class ClientInterface(object):
                     self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                     patient_info += mr_data.get('INHOSPITAL_PATIENT_INFO', list())
                 else:
-                    patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('INHOSPITAL_PATIENT_INFO', list())
+                    patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get(
+                        'INHOSPITAL_PATIENT_INFO', list())
             for data in patient_info:
                 patient = data.get('PATIENT_ID')
                 visit = data.get('VISIT_ID')
@@ -1440,8 +1505,11 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.discharge_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
-                    result.setdefault(data['DOCTOR_IN_CHARGE_ID'], dict())  # {医生ID：{doctor_name：名称，ward：病区，pat_num：病人数}}
+                if ward_name == '全部' or ward_name == '医务处' or data[
+                    'DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
+                    result.setdefault(data['DOCTOR_IN_CHARGE_ID'],
+                                      dict())  # {医生ID：{doctor_name：名称，ward：病区，pat_num：病人数}}
                     result[data['DOCTOR_IN_CHARGE_ID']]['doctor_name'] = data['DOCTOR_IN_CHARGE']
                     result[data['DOCTOR_IN_CHARGE_ID']]['ward'] = data['DEPT_DISCHARGE_FROM_NAME']
                     result[data['DOCTOR_IN_CHARGE_ID']].setdefault('pat_num', 0)
@@ -1459,7 +1527,8 @@ class ClientInterface(object):
                         self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                         patient_info += mr_data.get('DISCHARGE_PATIENT_INFO', list())
                     else:
-                        patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('DISCHARGE_PATIENT_INFO', list())
+                        patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get(
+                            'DISCHARGE_PATIENT_INFO', list())
             elif ward_name in self.ward_dept.values():
                 for one_ward_name, dept in self.ward_dept.items():
                     if ward_name == dept:
@@ -1470,7 +1539,8 @@ class ClientInterface(object):
                             self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                             patient_info += mr_data.get('DISCHARGE_PATIENT_INFO', list())
                         else:
-                            patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('DISCHARGE_PATIENT_INFO', list())
+                            patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get(
+                                'DISCHARGE_PATIENT_INFO', list())
             else:
                 ward_code = self.ward_to_code(ward_name)
                 if not self.hospitalServerInfo.inhospital_pat_data.get(ward_code, dict()):
@@ -1479,7 +1549,8 @@ class ClientInterface(object):
                     self.hospitalServerInfo.inhospital_pat_data[ward_code] = mr_data
                     patient_info += mr_data.get('DISCHARGE_PATIENT_INFO', list())
                 else:
-                    patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('DISCHARGE_PATIENT_INFO', list())
+                    patient_info += self.hospitalServerInfo.inhospital_pat_data[ward_code].get('DISCHARGE_PATIENT_INFO',
+                                                                                               list())
 
             for data in patient_info:
                 patient = data.get('PATIENT_ID')
@@ -1524,7 +1595,8 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.inhospital_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(data['DEPT_NAME']) == ward_name:
+                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_NAME']) == ward_name:
                     doctor_pat.setdefault(data['USER_NAME'], dict())
         else:
             if not self.hospitalServerInfo.discharge_pat_num:
@@ -1535,7 +1607,9 @@ class ClientInterface(object):
             else:
                 doc_total = self.hospitalServerInfo.discharge_pat_num.get('DOC_TOTAL', list())
             for data in doc_total:
-                if ward_name == '全部' or ward_name == '医务处' or data['DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
+                if ward_name == '全部' or ward_name == '医务处' or data[
+                    'DEPT_DISCHARGE_FROM_NAME'] == ward_name or self.ward_dept.get(
+                        data['DEPT_DISCHARGE_FROM_NAME']) == ward_name:
                     doctor_pat.setdefault(data['DOCTOR_IN_CHARGE'], dict())
         query_id = set()
         if ward_name == '全部' or ward_name == '医务处':
@@ -1576,8 +1650,10 @@ class ClientInterface(object):
                     if creator_name and creator_name in doctor_pat:  # 修改者是该病区的医生
                         tmp.setdefault(creator_name, dict())
                         tmp[creator_name].setdefault('modify', set())
-                        last_code = set([v['code'] for v in data['doctor_value_list'][modify_num-1] if 'code' in v])  # 上一次的code
-                        this_code = set([v['code'] for v in data['doctor_value_list'][modify_num] if 'code' in v])  # 本次code
+                        last_code = set(
+                            [v['code'] for v in data['doctor_value_list'][modify_num - 1] if 'code' in v])  # 上一次的code
+                        this_code = set(
+                            [v['code'] for v in data['doctor_value_list'][modify_num] if 'code' in v])  # 本次code
                         diff_code = last_code.difference(this_code) | this_code.difference(last_code)  # 修改的规则
                         tmp[creator_name]['modify'].update(diff_code)
 
@@ -1613,7 +1689,8 @@ class ClientInterface(object):
         last_two_month = datetime.strftime(datetime(year_left_left, month_left_left, 1), '%Y-%m')
 
         # 上月书写病历数与上月书写问题病历数
-        last_month_count = conn.find({'control_date': {"$gte": last_month, "$lt": this_month}, 'doctor_id': doctor_id}).count()
+        last_month_count = conn.find(
+            {'control_date': {"$gte": last_month, "$lt": this_month}, 'doctor_id': doctor_id}).count()
         last_month_problem = conn.aggregate([
             {'$match': {'control_date': {"$gte": last_month, "$lt": this_month}}},
             {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]}}},  # 查看是否修改
@@ -1647,7 +1724,7 @@ class ClientInterface(object):
         for data in sort_record:
             if len(result['record_sorted']) < 5:
                 result['record_sorted'].append({data[0]: data[1]})  # 文书按问题条数排序，只取前5,存入结果字典
-            value = data[1]/total if total else 0
+            value = data[1] / total if not total else 0
             result['graph'].append({data[0]: value})  # 环形图
 
         # 最易犯问题前3
@@ -1673,7 +1750,7 @@ class ClientInterface(object):
         # 该科室上月各医生书写问题病历数
         last_month_num = conn.aggregate([
             {'$match': {'control_date': {"$gte": last_month, "$lt": this_month}, 'doctor_dept': dept}},
-            {'$project': {'doctor_id': 1, 'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]}}},  # 查看是否修改
+            {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]}}},  # 查看是否修改
             {'$unwind': '$doctor_value'},
             {'$match': {'doctor_value.code': {'$exists': True}}},
             {'$group': {'_id': '$doctor_id', 'value': {"$sum": 1}}}
@@ -1687,7 +1764,7 @@ class ClientInterface(object):
             tmp_num[data['_id']] = data['value']
         for k, v in tmp_total.items():
             if k in tmp_num:
-                tmp_ratio[k] = tmp_num[k]/v if v else 0
+                tmp_ratio[k] = tmp_num[k] / v if not v else 0
         ratio_sort = sorted(tmp_ratio.items(), key=lambda x: x[1], reverse=True)
         doctor_total = len(ratio_sort)
         last_rank = 0
@@ -1696,9 +1773,9 @@ class ClientInterface(object):
             if data[0] == doctor_id:
                 if n <= 3:
                     result['rank_info'] = '严重提示，您问题占比居于科室前三啦！'
-                elif n < doctor_total/3:
+                elif n < doctor_total / 3:
                     result['rank_info'] = '遗憾，33%同僚与您携手触底'
-                elif doctor_total/3 < n < doctor_total*2/3:
+                elif doctor_total / 3 < n < doctor_total * 2 / 3:
                     result['rank_info'] = '再接再厉，质量仅超过33%同僚'
                 else:
                     result['rank_info'] = '优秀如您，质量超过66%同僚'
@@ -1712,7 +1789,7 @@ class ClientInterface(object):
         # 该科室上上月各医生书写问题病历数
         last_two_num = conn.aggregate([
             {'$match': {'control_date': {"$gte": last_month, "$lt": this_month}, 'doctor_dept': dept}},
-            {'$project': {'doctor_id': 1, 'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]}}},  # 查看是否修改
+            {'$project': {'doctor_value': {'$slice': ['$doctor_value_list', -1, 1]}}},  # 查看是否修改
             {'$unwind': '$doctor_value'},
             {'$match': {'doctor_value.code': {'$exists': True}}},
             {'$group': {'_id': '$doctor_id', 'value': {"$sum": 1}}}
@@ -1726,7 +1803,7 @@ class ClientInterface(object):
             tmp_two_num[data['_id']] = data['value']
         for k, v in tmp_two_total.items():
             if k in tmp_two_num:
-                tmp_two_ratio[k] = tmp_two_num[k]/v if v else 0
+                tmp_two_ratio[k] = tmp_two_num[k] / v if not v else 0
         ratio_two_sort = sorted(tmp_two_ratio.items(), key=lambda x: x[1], reverse=True)
         result['rank_change'] = ''
         for n, data in enumerate(ratio_two_sort, 1):
@@ -1741,15 +1818,14 @@ class ClientInterface(object):
     def problemNameAndCode(self, regular_name='', in_hospital=True):
         result = dict()
         if in_hospital:
-            regular_model = self.parameters.regular_model['医生端']
+            regular_model = self.parameters.regular_model['医生端'].copy()
         else:
-            regular_model = self.parameters.regular_model['环节']
+            regular_model = self.parameters.regular_model['环节'].copy()
         for k, v in regular_model.items():
-            if v.get('status') == '启用' and v.get('regular_classify'):
-                regular_classify = v.get('regular_classify')
-                result.setdefault(regular_classify, list())
-                if v.get('regular_details') and v.get('regular_details') not in result[regular_classify]:
-                    result[regular_classify].append(v.get('regular_details').strip())
+            if len(v) > 6 and v[6] == '启用' and v[0]:
+                result.setdefault(v[0], list())
+                if v[1] and v[1] not in result[v[0]]:
+                    result[v[0]].append(v[1].strip())
         code_list = ['全部']
         for v in result.values():
             code_list.extend(v)
@@ -1773,13 +1849,14 @@ class ClientInterface(object):
         if ward_name == '医务处' or ward_name == '全部':
             result['district'] = list(self.ward_dept.keys())
             result['district'].insert(0, '全部')
+            return result
         elif ward_name in self.ward_dept.values():
             result['district'] = list()
             for k, v in self.ward_dept.items():
                 if v == ward_name:
                     result['district'].append(k)
             result['district'].insert(0, '全部')
-        return result
+            return result
 
     def showJsonFile(self, patient_id, visit_id):
         """
@@ -1806,7 +1883,8 @@ class ClientInterface(object):
                     if info.get('key') and info['key'] in self.conf_dict['ruyuanjilu_segment']:
                         result.setdefault(tab_name, dict())
                         result[tab_name][info['key']] = info.get('value', '')
-                if 'binglizhenduan' in original_info and isinstance(original_info.get('binglizhenduan'), list):  # 初步诊断在 binglizhenduan 中
+                if 'binglizhenduan' in original_info and isinstance(original_info.get('binglizhenduan'),
+                                                                    list):  # 初步诊断在 binglizhenduan 中
                     diagnosis_name = list()
                     for info in original_info['binglizhenduan']:
                         if info.get('diagnosis_type_name') == '初步诊断' and info.get('diagnosis_name'):
@@ -1820,10 +1898,10 @@ class ClientInterface(object):
                     continue
                 if isinstance(original_info[record_name], list):  # 可重复文书
                     for info in original_info[record_name]:
-                        if not info.get('mr_content_html'):
+                        if not info.get('mr_content'):
                             continue
                         result.setdefault(tab_name, list())
-                        result[tab_name].append(info['mr_content_html'])
+                        result[tab_name].append(info['mr_content'])
         return result
 
     def demoData(self):
@@ -1840,17 +1918,27 @@ class ClientInterface(object):
                 result['sex_name'] = data['binganshouye']['pat_info'].get('sex_name', '')
                 result['age_value'] = data['binganshouye']['pat_visit'].get('age_value', '')
                 result['age_value_unit'] = data['binganshouye']['pat_visit'].get('age_value_unit', '')
-                result['allergy_indicator'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_past_illness', dict()).get('allergy_indicator', '否')
-                result['dept'] = data['binganshouye']['pat_visit'].get('dept_discharge_from_name', '') or data['binganshouye']['pat_visit'].get('dept_admission_to_name', '')
-                result['chief_complaint'] = data['ruyuanjilu']['ruyuanjilu'].get('chief_complaint', dict()).get('src', '')
-                result['history_of_present_illness'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_present_illness', dict()).get('src', '')
-                result['history_of_past_illness'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_past_illness', dict()).get('src', '')
+                result['allergy_indicator'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_past_illness',
+                                                                                   dict()).get('allergy_indicator', '否')
+                result['dept'] = data['binganshouye']['pat_visit'].get('dept_discharge_from_name', '') or \
+                                 data['binganshouye']['pat_visit'].get('dept_admission_to_name', '')
+                result['chief_complaint'] = data['ruyuanjilu']['ruyuanjilu'].get('chief_complaint', dict()).get('src',
+                                                                                                                '')
+                result['history_of_present_illness'] = data['ruyuanjilu']['ruyuanjilu'].get(
+                    'history_of_present_illness', dict()).get('src', '')
+                result['history_of_past_illness'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_past_illness',
+                                                                                         dict()).get('src', '')
                 result['social_history'] = data['ruyuanjilu']['ruyuanjilu'].get('social_history', dict()).get('src', '')
-                result['menstrual_and_obstetrical_histories'] = data['ruyuanjilu']['ruyuanjilu'].get('menstrual_and_obstetrical_histories', dict()).get('src', '')
-                result['history_of_family_member_diseases'] = data['ruyuanjilu']['ruyuanjilu'].get('history_of_family_member_diseases', dict()).get('src', '')
-                result['physical_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('physical_examination', dict()).get('src', '')
-                result['auxiliary_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('auxiliary_examination', dict()).get('src', '')
-                result['special_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('special_examination', dict()).get('src', '')
+                result['menstrual_and_obstetrical_histories'] = data['ruyuanjilu']['ruyuanjilu'].get(
+                    'menstrual_and_obstetrical_histories', dict()).get('src', '')
+                result['history_of_family_member_diseases'] = data['ruyuanjilu']['ruyuanjilu'].get(
+                    'history_of_family_member_diseases', dict()).get('src', '')
+                result['physical_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('physical_examination',
+                                                                                      dict()).get('src', '')
+                result['auxiliary_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('auxiliary_examination',
+                                                                                       dict()).get('src', '')
+                result['special_examination'] = data['ruyuanjilu']['ruyuanjilu'].get('special_examination', dict()).get(
+                    'src', '')
                 result['diagnosis_name'] = data['ruyuanjilu']['ruyuanjilu'].get('diagnosis_name_src', '')
                 result['pat_value'] = data['result'].get('pat_value', list())
                 result['shoushujilu'] = ''
@@ -1878,16 +1966,18 @@ class ClientInterface(object):
         binganshouye['pat_visit']['dept_discharge_from_name'] = json_file.get('dept', '')
         result['binganshouye'] = binganshouye
         ruyuanjilu = [
-            {'key': 'ryjl_zs', 'value': json_file.get('chief_complaint', ''), 'chapter_name': 'chief_complaint'},
-            {'key': 'ryjl_tgjc', 'value': json_file.get('physical_examination', ''), 'chapter_name': 'physical_examination'},
-            {'key': 'ryjl_xbs', 'value': json_file.get('history_of_present_illness', ''), 'chapter_name': 'history_of_present_illness'},
-            {'key': 'ryjl_jws', 'value': json_file.get('history_of_past_illness', ''), 'chapter_name': 'history_of_past_illness'},
-            {'key': 'ryjl_grs', 'value': json_file.get('social_history', ''), 'chapter_name': 'social_history'},
-            {'key': 'ryjl_yjhys', 'value': json_file.get('menstrual_and_obstetrical_histories', ''), 'chapter_name': 'menstrual_and_obstetrical_histories'},
-            {'key': 'ryjl_jzs', 'value': json_file.get('history_of_family_member_diseases', ''), 'chapter_name': 'history_of_family_member_diseases'},
-            {'key': 'ryjl_cbzd', 'value': json_file.get('special_examination', ''), 'chapter_name': 'special_examination'}
+            {'key': '主诉', 'value': json_file.get('chief_complaint', '')},
+            {'key': '体格检查', 'value': json_file.get('physical_examination', '')},
+            {'key': '现病史', 'value': json_file.get('history_of_present_illness', '')},
+            {'key': '既往史', 'value': json_file.get('history_of_past_illness', '')},
+            {'key': '个人史', 'value': json_file.get('social_history', '')},
+            {'key': '婚姻史', 'value': json_file.get('menstrual_and_obstetrical_histories', '')},
+            {'key': '家族史', 'value': json_file.get('history_of_family_member_diseases', '')},
+            {'key': '辅助检查', 'value': json_file.get('auxiliary_examination', '')},
+            {'key': '初步诊断', 'value': json_file.get('diagnosis_name', '')},
+            {'key': '专科检查', 'value': json_file.get('special_examination', '')}
         ]
-        segment_result = self.segment.process(ruyuanjilu)
+        segment_result = self.segment.process('ruyuanjilu', ruyuanjilu)
         file_flag = False
         if segment_result:
             file_flag = True  # 有有效文书
@@ -1898,18 +1988,20 @@ class ClientInterface(object):
         if result.get('ruyuanjilu', list()):
             if 'ruyuanjilu' in result['ruyuanjilu'][0]:
                 result['ruyuanjilu'][0]['ruyuanjilu'].setdefault('history_of_past_illness', dict())
-                result['ruyuanjilu'][0]['ruyuanjilu']['history_of_past_illness']['allergy_indicator'] = json_file.get('allergy_indicator', '否')
+                result['ruyuanjilu'][0]['ruyuanjilu']['history_of_past_illness']['allergy_indicator'] = json_file.get(
+                    'allergy_indicator', '否')
 
         res = dict()
         self.run_regular.all_result = dict()
         self.run_regular.debug = False
-        self.run_regular.regular_model = self.parameters.regular_model['终末']
+        self.run_regular.regular_model = self.parameters.regular_model['终末'].copy()
         # 只质控病案首页相关规则，非病案首页规则置为未启用
-        for regular_code, regular_model in self.run_regular.regular_model.items():
-            if regular_model.get('record_name') == '入院记录':
-                regular_model['status'] = '启用'
-            else:
-                regular_model['status'] = '未启用'
+        for i in self.regularInfo('终末'):
+            if len(self.run_regular.regular_model.get(i.code, list())) > 6:
+                if i.record_name == '入院记录':
+                    self.run_regular.regular_model[i.code][6] = '启用'
+                else:
+                    self.run_regular.regular_model[i.code][6] = '未启用'
         for collection_name, collection_rule_func in self.conf_dict['func'].items():
             for func in collection_rule_func:
                 if func not in self.run_regular.__dir__():
@@ -1920,19 +2012,22 @@ class ClientInterface(object):
         else:
             return ['病历正确']
 
+    def regularInfo(self, step):
+        regular_model = self.parameters.regular_model[step].copy()
+        result = list()
+        for regular_code in regular_model:
+            result.append(RegularInfo(regular_code, step))
+        return result
+
 
 if __name__ == '__main__':
     app = ClientInterface()
-    with open('./123.json', 'r', encoding='utf8') as f:
+    with open('./jsondemo.json', 'r', encoding='utf8') as f:
         dt = json.load(f)
+    # json_file = dt.get('info', dict())
+    # json_file['shangjiyishichafangjilu'] = [{}]
     t1 = datetime.now()
-    # r = app.processJsonFile(dt)
-    data = app.segmentRecord_new(dt)
-    from MedicalQuality.mainProgram_es import CheckMultiRecords
-    app = CheckMultiRecords()
-    # app.getBinganshouyeData(data=data, source_type=2)
-    app.enableRegular('RYJLZS0000')
-    r = app.runRegularRYJLZS0000(input_data=data, source_type=2, n=1)
-    # t = (datetime.now()-t1).total_seconds()
-    # print(json.dumps(r, ensure_ascii=False, indent=4))
-    # print('函数运行消耗 {0} 秒'.format(t))
+    r = app.doctorRank({'$exists': True})
+    t = (datetime.now() - t1).total_seconds()
+    print(json.dumps(r, ensure_ascii=False, indent=4))
+    print('函数运行消耗 {0} 秒'.format(t))

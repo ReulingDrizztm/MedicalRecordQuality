@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
-"""
-@version: V1.0
-@author:
-@mail:
-@file: initialization.py
-@time: 2019-04-04 17:16
-@description: 
-"""
 import os
 import sys
 cur_path = os.path.abspath(os.path.dirname(__file__))

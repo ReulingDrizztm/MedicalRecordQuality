@@ -1,5 +1,5 @@
 from django.apps import AppConfig
 
 
-class RecordclientTestConfig(AppConfig):
-    name = 'RecordClientTest'
+class RecordclientConfig(AppConfig):
+    name = 'RecordClient'

@@ -1,8 +1,8 @@
 # -*- coding:utf-8 -*
 """
 @version: v1.0
-@author:
-@contact:
+@author: shangyafei
+@contact: shangyafei@bjgoodwill.com
 @software: PyCharm Community Edition
 @File: loadingConfigure.py
 @time: 16/05/17 下午 04:37
@@ -15,7 +15,8 @@ sys.path.append(rootPath)
 import re
 import threading
 from pymongo import MongoClient
-from encoder import XML2Dict
+from XML2Dict.encoder import XML2Dict
+# XML2Dict 是把 xml 格式的数据转化成 dict 格式的数据
 
 
 class Properties(object):

@@ -1937,6 +1937,165 @@ class StatisticPatientInfos(object):
         return file_name
 
 
+    def find_detail_data(self, inp_doctor_name, attending_doctor_name, senior_doctor_name):
+        """
+        终末监控页面，获取问题患者详情
+        :param inp_doctor_name: 住院医师
+        :param attending_doctor_name: 主治医师
+        :param senior_doctor_name: 主任医师
+        :return: 详情列表
+        """
+        conn = self.mongo_pull_utils.connection(self.collection_name + "_zhongmo")
+        res = conn.find({}).batch_size(20)
+        data_list = []
+        for data in res:
+            data_dict = {}
+            if data.get("pat_info").get("inp_doctor_name") == inp_doctor_name:
+                data_dict["_id"] = "#".join(data["_id"].split("#")[0:2])  # 患者ID#就诊次
+                data_dict["person_name"] = data["pat_info"]["person_name"]  # 患者姓名
+                data_dict["discharge_time"] = data["pat_info"]["discharge_time"]  # 出院时间
+                data_dict["inp_doctor_name"] = inp_doctor_name  # 三级医师姓名（住院医师）
+                data_dict["inp_doctor_name"] += "({}, {})".format(attending_doctor_name, senior_doctor_name)
+                score_total = data["pat_info"]["machine_score"] + data["pat_info"]["artificial_score"]  # 总扣分
+                grade = self.score_grade(score_total)  # 病历等级
+                data_dict["grade"] = grade
+                detail_list = []
+                for pat_value in data["pat_value"]:
+                    machine_dict = {}
+                    machine_dict["score"] = pat_value.get("score", 0)
+                    machine_dict["name"] = pat_value.get("name", "")
+                    machine_dict["reason"] = pat_value.get("reason", "")
+                    detail_list.append(machine_dict)
+                for content in data["content"]:
+                    content_dict = {}
+                    content_dict["score"] = content.get("score", 0)
+                    content_dict["name"] = "人工：" + content.get("reg", "")
+                    content_dict["reason"] = content.get("text", "")
+                    detail_list.append(content_dict)
+                for del_value in data["content"]:
+                    del_dict = {}
+                    del_dict["score"] = del_value.get("score", 0)
+                    del_dict["name"] = del_value.get("name", "")
+                    del_dict["reason"] = del_value.get("reason", "")
+                    if del_dict in detail_list:
+                        detail_list.remove(del_dict)
+                data_dict["detail"] = detail_list
+                data_list.append(data_dict)
+        return data_list
+
+    @staticmethod
+    def score_grade(score):
+        """
+        计算当前病历扣分情况下属于哪一级病历
+        甲级： 大于90分
+        乙级： 大于等于74分，小于等于90分
+        丙级： 小于74分
+        :param score: 当前病历扣分值
+        :return: 当前病历的评分等级，分别为甲级、乙级、丙级
+        """
+        if 100 - score > 90:
+            return "甲级"
+        elif 100 - score < 74:
+            return "丙级"
+        else:
+            return "乙级"
+
+    def find_patient_by_status(self, page=""):
+        """
+        页眉栏的信息展示，包括监控样本数、甲级病历率、乙级病历率、丙级病历率
+        病历率： 是当前级别病历总数与总病历数的比值
+        :param page: 前端传递过来的参数，“zhongmo”表示监控的是终末页面，"jiwang"表示监控的是既往页面
+        :return: dict{监控病例总数：%d，甲级病历率：%.2f，乙级病历率：%.2f，丙级病历率：%.2f}
+        """
+        medical_record_rate = {}
+
+        if (not page) or page == "zhongmo":
+            cursor = self.mongo_pull_utils.connection(self.collection_name + "_zhongmo")
+        elif page == "jiwang":
+            cursor = self.mongo_pull_utils.connection(self.collection_name)
+        res_patient = cursor.find({}).batch_size(50)
+        count = cursor.find({}).count()
+        first = 0
+        second = 0
+        third = 0
+
+        for data in res_patient:
+            pat_value = data.get("pat_value", "")
+            one = sum([score for score in [pat.get("score") for pat in pat_value]])
+            content = data.get("content", "")
+            two = sum([float(score) for score in [content.get("score") for content in content]])
+            del_value = data.get("del_value", "")
+            three = sum([score for score in [del_value.get("score") for del_value in del_value]])
+            total = one + two - three
+            if 100 - total >= 90:
+                first += 1
+            elif 74 < 100 - total < 90:
+                second += 1
+            else:
+                third += 1
+        medical_record_rate["record_total"] = count  # 监控病历总数
+        medical_record_rate["class_A"] = first  # 甲级病历数
+        medical_record_rate["class_B"] = second  # 乙级病历数
+        medical_record_rate["class_C"] = third  # 丙级病历数
+        medical_record_rate["ratio_class_A"] = "%.2f" % (first / count * 100)  # 甲级病历率
+        medical_record_rate["ratio_class_B"] = "%.2f" % (second / count * 100)  # 乙级病历率
+        medical_record_rate["ratio_class_C"] = "%.2f" % (third / count * 100)  # 丙级病历率
+        return medical_record_rate
+
+    def graph_page_header(self, page=""):
+        """
+        获取既往监控和终末监控页面页眉处的信息
+        :param page: 值为 jiwang 或者 zhongmo，分别表示 既往 或者 终末，表示数据是既往监控页面发起的请求还是终末监控发起的请求
+        :return:
+        """
+        if (not page) or page == "zhongmo":
+            collection_name = self.collection_name + "_zhongmo"
+        else:
+            collection_name = self.collection_name + '_statistics'
+        collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
+                                                             collection_name=collection_name)
+        time_range = self.conf_dict['time_limits']['binganshouye.pat_visit.discharge_time'].copy()
+        query_result = collection.find({'_id': time_range}, {'info': 1})
+        sample_num = 0
+        for data in query_result:
+            sample_num += sum([value['total'] for value in data['info']])
+        regular_num = len([value for value in self.regular_model.values() if value.get('status') == '启用'])
+        monitor_date = datetime.strftime(datetime.now(), '%Y-%m-%d')
+        result = dict()
+        # result['sample_num'] = sample_num  # 监控样本数
+        result['regular_num'] = regular_num  # 规则数
+        result['monitor_date'] = monitor_date  # 监控日期
+        result_count = self.count_dept(page=page)
+        result["department_count"] = result_count  # 监控的科室总数
+        medical_record_rate = self.find_patient_by_status(page=page)
+        result.update(medical_record_rate)
+        return result
+
+    def count_dept(self, page=""):
+        """
+        统计监控的科室数量，page的值：“jiwang”表示 既往， "zhongmo"表示 终末
+        :param page: jiwang 或者 zhongmo，表示是从既往或者终末页面发起的请求
+        :return: 监控的科室数量
+        """
+        if (not page) or page == "zhongmo":
+            collection_name = self.collection_name + "_zhongmo"
+        else:
+            collection_name = self.collection_name
+        collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
+                                                             collection_name=collection_name)
+        result = collection.aggregate(
+            [
+                {"$group": {
+                    "_id": "$pat_info.dept_discharge_from_name",
+                    "count": {"$sum": 1}
+                }},
+                {"$sort": {"count": -1}}
+            ],
+        )
+        result_list = list(result)
+        return len(result_list)
+
+
 if __name__ == '__main__':
     app = StatisticPatientInfos()
     t1 = datetime.now()

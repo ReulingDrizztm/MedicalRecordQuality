@@ -13,7 +13,7 @@ urlpatterns = [
     url(r'^oneYearRightAndError\.json', views.oneYearRightAndError, name='oneYearRightAndError'),
     url(r'^oneYearRightAndError2\.json', views.oneYearRightAndError2, name='oneYearRightAndError2'),
     url(r'^regularManage\.json', views.regularManage, name='regularManage'),
-    url(r'^graphPageHeader\.json', views.graphPageHeader, name='graphPageHeader'),
+    # url(r'^graphPageHeader\.json', views.graphPageHeader, name='graphPageHeader'),
     url(r'^fileDownload', views.fileDownload, name='fileDownload'),
     url(r'^problemNameAndCode\.json', views.problemNameAndCode, name='problemNameAndCode'),
     url(r'^oneYearRightAndError3\.json', views.oneYearRightAndError3, name='oneYearRightAndError3'),
@@ -39,4 +39,6 @@ urlpatterns = [
     url(r'^documentProblemClassify\.json', views.documentProblemClassify, name='documentProblemClassify'),
     url(r'^zhongmoFileDownloadMingxi\.json', views.zhongmoFileDownloadMingxi, name='zhongmoFileDownloadMingxi'),
     url(r'^zhongmoFileDownloadHuizong\.json', views.zhongmoFileDownloadHuizong, name='zhongmoFileDownloadHuizong'),
+    url(r'^graph_page_header\.json', views.graph_page_header, name='graph_page_header'),
+    url(r'^detail_problem_patients\.json', views.detail_problem_patients, name='detail_problem_patients'),
 ]

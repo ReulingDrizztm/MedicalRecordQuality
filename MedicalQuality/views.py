@@ -1061,5 +1061,64 @@ def zhongmoFileDownloadHuizong(request):
             return False
 
 
+@views_log
+def graph_page_header(request):
+    """
+    既往监控和终末监控页面页面信息展示
+    :param request: 前端传递过来的请求参数
+    :return: 需要展示的详细信息
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            page = json.loads(request.body).get("page", "")
+            result = statistic_app.graph_page_header(page=page)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+            page = request.POST.get("page", "")
+            result = statistic_app.graph_page_header(page=page)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
+@views_log
+def detail_problem_patients(request):
+    """
+    问题患者详情接口
+    :param request: 前端传递过来的参数，主要包括三级医师的姓名
+    :return: 问题患者详情
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            data = request.body
+            data = data.decode('utf-8')
+            if not data:
+                data = '{}'
+            data = json.loads(data)
+
+            inp_doctor_name = data.get('inp_doctor_name', '')
+            attending_doctor_name = data.get('attending_doctor_name', '')
+            senior_doctor_name = data.get('senior_doctor_name', '')
+
+            result = statistic_app.find_detail_data(inp_doctor_name=inp_doctor_name,
+                                                    attending_doctor_name=attending_doctor_name,
+                                                    senior_doctor_name=senior_doctor_name)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+
+            inp_doctor_name = request.POST.get('inp_doctor_name', '')
+            attending_doctor_name = request.POST.get('attending_doctor_name', '')
+            senior_doctor_name = request.POST.get('senior_doctor_name', '')
+
+            result = statistic_app.find_detail_data(inp_doctor_name=inp_doctor_name,
+                                                    attending_doctor_name=attending_doctor_name,
+                                                    senior_doctor_name=senior_doctor_name)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
 if __name__ == '__main__':
     pass

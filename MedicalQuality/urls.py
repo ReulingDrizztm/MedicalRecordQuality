@@ -41,4 +41,5 @@ urlpatterns = [
     url(r'^zhongmoFileDownloadHuizong\.json', views.zhongmoFileDownloadHuizong, name='zhongmoFileDownloadHuizong'),
     url(r'^graph_page_header\.json', views.graph_page_header, name='graph_page_header'),
     url(r'^detail_problem_patients\.json', views.detail_problem_patients, name='detail_problem_patients'),
+    url(r'^one_year_right_and_error\.json', views.one_year_right_and_error, name='one_year_right_and_error'),
 ]

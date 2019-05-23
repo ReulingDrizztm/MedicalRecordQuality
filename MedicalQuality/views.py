@@ -1120,5 +1120,26 @@ def detail_problem_patients(request):
             return HttpResponse(json.dumps({}))
 
 
+@views_log
+def one_year_right_and_error(request):
+    """
+    既往病历页面-病历问题量（百分比）图表，较去年病历问题量图表
+    :param request: 从前端传递过来的数据参数
+    :return: 病历问题量详情，json 字符串
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+
+            result = statistic_app.one_year_right_and_error()
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+
+            result = statistic_app.one_year_right_and_error()
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
 if __name__ == '__main__':
     pass

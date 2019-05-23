@@ -2095,6 +2095,198 @@ class StatisticPatientInfos(object):
         result_list = list(result)
         return len(result_list)
 
+    def one_year_right_and_error(self):
+        """
+        既往监控页面病历问题量（百分比）以及 较去年病历问题量（上升/下降前五名科室名称）
+        病历问题量需要统计既往质控数据库中所有数据。
+        1、每年数据按月统计病历问题量，上一年的数据按月统计病历问题量
+        2、每月数据计算出当月的病历问题量百分比，与上一年病历问题量的同比
+        3、上升/下降前五名科室名称统计的是每一年的数据
+        :return: 每年的数据统计结果
+        """
+        collection_name = self.collection_name + '_statistics'
+        collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
+                                                             collection_name=collection_name)
+        result = dict()
+        query_result = collection.find().sort('_id', 1).batch_size(50)
+        temp = dict()
+        year_set = set()
+        for data in query_result:
+            date = data['_id']
+            year = date[:4]
+            year_set.add(int(year))
+            result.setdefault(year, dict())
+            temp.setdefault(year, dict())
+            result[year].setdefault('info', list())
+            error = sum([value['error'] for value in data['info']])
+            right = sum([value['right'] for value in data['info']])
+            total = sum([value['total'] for value in data['info']])
+            result[year]['info'].append({'date': date,  # 日期，如2019-05
+                                         'error': error,  # 当月问题病历数量
+                                         'right': right,  # 当月没有问题病历数量
+                                         'total': total,  # 当年病历总量
+                                         'error_ratio': error/total if total else 0})  # 当月问题病历比率
+            
+            # 按年统计各科室病历问题量和病历总量
+            for dept in data['info']:
+                if not dept['dept']:
+                    continue
+                if not re.sub('[A-Za-z0-9]*', '', dept['dept']):
+                    continue
+                temp[year].setdefault(dept['dept'], dict())
+                temp[year][dept['dept']].setdefault('error', 0)
+                temp[year][dept['dept']].setdefault('total', 0)
+                temp[year][dept['dept']]['error'] += dept['error']
+                temp[year][dept['dept']]['total'] += dept['total']
+        year_list = sorted(list(year_set))  # 将所有时间放如列表中并且从小到大排序
+        result_handle = {}
+        for year in year_list:
+            # 按年组装响应数据格式
+            dict_info = {}
+            if year == year_list[0]:  # 首年数据与其他数据不同，单独处理
+                info_list = self.hand_first_year(year, result)
+                tmp_list, nurses_list, nurses_dict_year = self.count_temp(year, temp)
+            else:
+                info_list = self.handle_info(year, result)
+                tmp_list = self.count_temp_this_year(year, temp)
+            dict_info["info"] = info_list  # 详细情况列表，即病历问题量图表数据
+            dict_info["dept_ratio_first_5"] = (sorted(tmp_list, key=lambda x: x["value"], reverse=True))[:5]  # 上升前五名
+            dict_info["dept_ratio_last_5"] = (sorted(tmp_list, key=lambda x: x["value"], reverse=True))[-1:-6:-1]  # 下降前五名
+            result_handle[str(year)] = dict_info  # 将一年的数据放到一个单独的字典中，然后每年的数据放到一个大字典中
+        # print(result_handle)
+        return result_handle
+
+    def handle_info(self, year, d_source):
+        """
+        处理除开起始年的 info 里面的数据，将处理结果放如一个列表中返回
+        :param year: 所处理的数据所在的年份，如 2019
+        :param d_source: 统计好的每年的病历问题数据详情
+        :return: 一年的病历问题量数据详情列表，分为12个月，每个月的数据为字典格式
+        """
+        detail_info = []
+        last_year = year - 1  # 获取上一年的年份，如今年的年份为 2019 年，上一年为 2018 年
+        dict_info = d_source.get(str(year)).get("info")  # 从统计结果中获取当年的 info 字段数据，是列表 [] 类型
+        last_year_dict_info = d_source.get(str(last_year)).get("info")  # 从统计结果中获取上一年的 info 字段数据，是列表 [] 类型
+        month_list = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]  # 事先构造一个全年月份的数组
+        for month_num in month_list:
+            month_ty = str(year) + "-" + month_num  # 构造当年的月份格式
+            month_ly = str(last_year) + "-" + month_num  # 构造上一年的月份格式
+            info_this_year_month = self.hand_this_month(month_ty, dict_info, month_ly, last_year_dict_info)
+            detail_info.append(info_this_year_month)  # 将当月的数据添加到列表中
+        return detail_info
+
+    def hand_this_month(self, this_year_month, dict_info, last_year_month, info_last_year):
+        """
+        处理非第一年的 info 字段数据的详细过程
+        :param this_year_month: 当年当月的月份数据
+        :param dict_info: 当年当月的 info 字段的数据详情
+        :param last_year_month: 去年当月的月份数据
+        :param info_last_year: 去年当月的 info 字段里的详细数据
+        :return: 组装好格式的 info 字段数据
+        """
+        info_detail = dict()
+        info_detail["data_TY"] = "年".join(this_year_month.split("-")) + "月"  # 月份
+        info_detail["error_TY"] = 0  # 今年当月问题病历数量
+        info_detail["total_TY"] = 0  # 今年病历问题总量
+        info_detail["error_LY"] = 0  # 去年当月问题病历数量
+        info_detail["total_LY"] = 0  # 去年病历问题总量
+        info_detail["error_ratio"] = 0  # 占比
+        info_detail["year_on_year"] = 0  # 同比
+        for detail_list_this_year in dict_info:  # detail_list 是 dict {} 类型
+            if detail_list_this_year.get("date") != this_year_month:
+                continue
+            info_detail["error_TY"] += detail_list_this_year.get("error")
+            info_detail["total_TY"] += detail_list_this_year.get("total")
+            info_detail["error_ratio"] += detail_list_this_year.get("error_ratio")
+        for detail_list_last_year in info_last_year:
+            if detail_list_last_year.get("date") != last_year_month:
+                continue
+            info_detail["error_LY"] += detail_list_last_year.get("error", 0)
+            info_detail["total_LY"] += detail_list_last_year.get("total", 0)
+        if info_detail["total_LY"] <= 0:
+            info_detail["year_on_year"] += info_detail["error_ratio"]
+        else:
+            info_detail["year_on_year"] += info_detail["error_ratio"] - (
+                        info_detail["error_LY"] / info_detail["total_LY"])
+        return info_detail
+
+    def hand_first_year(self, year, d_source):
+        """
+        处理起始年的 info 字段数据的详细过程，起始年返回的的数据和其他数据不一样，单独处理。
+        因为是起始年，没有同比数据，故同比项直接给了默认值 0
+        起始年没有上一年，所以上一年的数据给了默认值 0，上升排名和下降排名用的是当年的排名
+        :param year: 起始年的年份，如 2012
+        :param d_source: 统计好的每年的病历问题数据详情
+        :return: 起始年的病历问题量数据详情列表，分为12个月，每个月的数据为字典格式
+        """
+        detail_info = []
+        dict_info = d_source.get(str(year)).get("info")
+        month_list = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
+        for month in month_list:
+            info_detail = dict()
+            month_str = str(year) + "-" + month
+            info_detail["data_TY"] = str(year) + "年" + month + "月"
+            info_detail["error_TY"] = 0  # 今年当月问题病历数量
+            info_detail["total_TY"] = 0  # 今年病历问题总量
+            info_detail["error_LY"] = 0  # 去年当月问题病历数量
+            info_detail["total_LY"] = 0  # 去年病历问题总量
+            info_detail["error_ratio"] = 0  # 占比
+            info_detail["year_on_year"] = 0  # 同比
+            for detail_list_this_year in dict_info:  # detail_list 是 dict {} 类型
+                if detail_list_this_year.get("date") != month_str:
+                    continue
+                info_detail["error_TY"] += detail_list_this_year.get("error", 0)
+                info_detail["total_TY"] += detail_list_this_year.get("total", 0)
+                info_detail["error_LY"] = 0
+                info_detail["total_LY"] = 0
+                info_detail["error_ratio"] += detail_list_this_year.get("error_ratio", 0)
+            detail_info.append(info_detail)
+        return detail_info
+
+    def count_temp_this_year(self, year, tmp):
+        """
+        处理除开第一年以外的年份里，各科室病历问题量排名
+        因为要做 较上一年的病历问题量统计，所以需要引入上一年的病历问题统计结果
+        :param year: 当年的年份，如 2019
+        :param tmp: 各科室病历问题量统计结果
+        :return: 非起始年的各科室病历问题量排名
+        """
+        last_year = year - 1
+        nurses_year_list = []
+        
+        tmp_this_year, nurses_list_this_year, nurses_dict_this_year = self.count_temp(year, tmp)
+        tmp_last_year, nurses_list_last_year, nurses_dict_last_year = self.count_temp(last_year, tmp)
+        for nurses in nurses_list_this_year:
+            nurses_dict = dict()
+            if nurses in nurses_list_last_year:  # 如果该科在上一年就已经存在，则上升情况用当年的比率减去上一年的比率
+                nurses_dict["name"] = nurses
+                nurses_dict["value"] = nurses_dict_this_year.get(nurses) - nurses_dict_last_year.get(nurses)
+            else:  # 如果该科室没有在上一年出现，或者是新设立的科室，则直接为当年的比率
+                nurses_dict["name"] = nurses
+                nurses_dict["value"] = nurses_dict_this_year.get(nurses)
+            nurses_year_list.append(nurses_dict)  # 将结果添加到列表中，方便做排序
+        return nurses_year_list
+
+    def count_temp(self, year, tmp):
+        """
+        处理一年的各科室病历问题量上升排名和下降排名
+        :param year: 当年的年份，如 2018
+        :param tmp: 各科室病历问题量统计结果
+        :return: 各科室病历问题量统计结果列表（做排序用），科室列表， 统计结果（做比较用）
+        """
+        tmp_list = tmp.get(str(year))
+        result_list = []
+        nurses_list = []
+        nurses_dict_year = {}
+        for nurses, detail in tmp_list.items():
+            nurses_list.append(nurses)
+            nurses_dict = dict()
+            nurses_dict["name"] = nurses
+            nurses_dict["value"] = detail.get("error") / detail.get("total") if detail.get("total") != 0 else 0
+            nurses_dict_year[nurses] = nurses_dict["value"]  # 直接对字典排序，得到的是元祖，不方便做下一步统计
+            result_list.append(nurses_dict)  # 将字典放入列表中，根据字典的值对列表排序，排序结果还是列表嵌套字典，方便下一步操作
+        return result_list, nurses_list, nurses_dict_year
+
 
 if __name__ == '__main__':
     app = StatisticPatientInfos()

@@ -1141,5 +1141,61 @@ def one_year_right_and_error(request):
             return HttpResponse(json.dumps({}))
 
 
+@views_log
+def senior_doctor_header(request):
+    """
+    科主任页面页眉两栏数据处理接口视图函数
+    :param request: 从前端传递过来的数据参数
+    :return: 页眉处需要展示的数据详情
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            data = request.body
+            data = data.decode('utf-8')
+            if not data:
+                data = {}
+            data = json.loads(data)
+            page = data.get("page", "")
+            department = data.get("department", "")
+            result = statistic_app.senior_doctor_header(page=page, department=department)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+            page = request.POST.get("page", "")
+            department = request.POST.get("department", "")
+            result = statistic_app.senior_doctor_header(page=page, department=department)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+        
+        
+@views_log
+def dept_problem_percentage(request):
+    """
+    xxx科问题分类（百分比）
+    :param request:
+    :return:
+    """
+    statistic_app = StatisticPatientInfos()
+    if request.method == 'POST':
+        if request.content_type == 'text/plain':
+            data = request.body
+            data = data.decode('utf-8')
+            if not data:
+                data = {}
+            data = json.loads(data)
+            page = data.get("page", "")
+            department = data.get("department", "")
+            result = statistic_app.dept_problem_percentage(page=page, department=department)
+            return HttpResponse(json.dumps(result))
+        elif request.content_type == 'multipart/form-data':
+            page = request.POST.get("page", "")
+            department = request.POST.get("department", "")
+            result = statistic_app.dept_problem_percentage(page=page, department=department)
+            return HttpResponse(json.dumps(result))
+        else:
+            return HttpResponse(json.dumps({}))
+
+
 if __name__ == '__main__':
     pass

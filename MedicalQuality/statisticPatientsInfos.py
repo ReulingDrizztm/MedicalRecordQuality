@@ -1959,21 +1959,21 @@ class StatisticPatientInfos(object):
                 score_total = data["pat_info"]["machine_score"] + data["pat_info"]["artificial_score"]  # 总扣分
                 grade = self.score_grade(score_total)  # 病历等级
                 data_dict["grade"] = grade
-                detail_list = []
+                detail_list = list()
                 for pat_value in data["pat_value"]:
-                    machine_dict = {}
+                    machine_dict = dict()
                     machine_dict["score"] = pat_value.get("score", 0)
                     machine_dict["name"] = pat_value.get("name", "")
                     machine_dict["reason"] = pat_value.get("reason", "")
                     detail_list.append(machine_dict)
                 for content in data["content"]:
-                    content_dict = {}
+                    content_dict = dict()
                     content_dict["score"] = content.get("score", 0)
                     content_dict["name"] = "人工：" + content.get("reg", "")
                     content_dict["reason"] = content.get("text", "")
                     detail_list.append(content_dict)
                 for del_value in data["content"]:
-                    del_dict = {}
+                    del_dict = dict()
                     del_dict["score"] = del_value.get("score", 0)
                     del_dict["name"] = del_value.get("name", "")
                     del_dict["reason"] = del_value.get("reason", "")
@@ -2000,21 +2000,25 @@ class StatisticPatientInfos(object):
         else:
             return "乙级"
 
-    def find_patient_by_status(self, page=""):
+    def find_patient_by_status(self, page="", department=""):
         """
         页眉栏的信息展示，包括监控样本数、甲级病历率、乙级病历率、丙级病历率
         病历率： 是当前级别病历总数与总病历数的比值
         :param page: 前端传递过来的参数，“zhongmo”表示监控的是终末页面，"jiwang"表示监控的是既往页面
+        :param department: 科室名称
         :return: dict{监控病例总数：%d，甲级病历率：%.2f，乙级病历率：%.2f，丙级病历率：%.2f}
         """
-        medical_record_rate = {}
-
+        medical_record_rate = dict()
         if (not page) or page == "zhongmo":
             cursor = self.mongo_pull_utils.connection(self.collection_name + "_zhongmo")
-        elif page == "jiwang":
+        else:
             cursor = self.mongo_pull_utils.connection(self.collection_name)
-        res_patient = cursor.find({}).batch_size(50)
-        count = cursor.find({}).count()
+        if not department:
+            res_patient = cursor.find({}).batch_size(50)
+            count = cursor.find({}).count()
+        else:
+            res_patient = cursor.find({"pat_info.dept_discharge_from_name": department}).batch_size(50)
+            count = cursor.find({"pat_info.dept_discharge_from_name": department}).count()
         first = 0
         second = 0
         third = 0
@@ -2037,9 +2041,9 @@ class StatisticPatientInfos(object):
         medical_record_rate["class_A"] = first  # 甲级病历数
         medical_record_rate["class_B"] = second  # 乙级病历数
         medical_record_rate["class_C"] = third  # 丙级病历数
-        medical_record_rate["ratio_class_A"] = "%.2f" % (first / count * 100)  # 甲级病历率
-        medical_record_rate["ratio_class_B"] = "%.2f" % (second / count * 100)  # 乙级病历率
-        medical_record_rate["ratio_class_C"] = "%.2f" % (third / count * 100)  # 丙级病历率
+        medical_record_rate["ratio_class_A"] = "%.2f" % (first / count * 100) if count != 0 else 0  # 甲级病历率
+        medical_record_rate["ratio_class_B"] = "%.2f" % (second / count * 100) if count != 0 else 0  # 乙级病历率
+        medical_record_rate["ratio_class_C"] = "%.2f" % (third / count * 100) if count != 0 else 0  # 丙级病历率
         return medical_record_rate
 
     def graph_page_header(self, page=""):
@@ -2048,27 +2052,24 @@ class StatisticPatientInfos(object):
         :param page: 值为 jiwang 或者 zhongmo，分别表示 既往 或者 终末，表示数据是既往监控页面发起的请求还是终末监控发起的请求
         :return:
         """
-        if (not page) or page == "zhongmo":
-            collection_name = self.collection_name + "_zhongmo"
-        else:
-            collection_name = self.collection_name + '_statistics'
-        collection = self.mongo_pull_utils.connectCollection(database_name=self.database_name,
-                                                             collection_name=collection_name)
-        time_range = self.conf_dict['time_limits']['binganshouye.pat_visit.discharge_time'].copy()
-        query_result = collection.find({'_id': time_range}, {'info': 1})
-        sample_num = 0
-        for data in query_result:
-            sample_num += sum([value['total'] for value in data['info']])
+        result = self.header_of_page()  # [{}, {}, ..., {}]
+        result_count = len(self.count_dept(page=page))  # 函数返回的是一个列表，需要求出列表的长度，即为监控的科室总数
+        result["department_count"] = result_count  # 监控的科室总数
+        medical_record_rate = self.find_patient_by_status(page=page)  # 页眉第二栏数据信息
+        result.update(medical_record_rate)
+        return result
+
+    def header_of_page(self):
+        """
+        统计监控样本数，监控规则数和监控日期
+        :return: {“regular_num”： 整数类型的规则数量， “monitor_date”： “监控的日期”}
+        """
         regular_num = len([value for value in self.regular_model.values() if value.get('status') == '启用'])
         monitor_date = datetime.strftime(datetime.now(), '%Y-%m-%d')
         result = dict()
         # result['sample_num'] = sample_num  # 监控样本数
-        result['regular_num'] = regular_num  # 规则数
         result['monitor_date'] = monitor_date  # 监控日期
-        result_count = self.count_dept(page=page)
-        result["department_count"] = result_count  # 监控的科室总数
-        medical_record_rate = self.find_patient_by_status(page=page)
-        result.update(medical_record_rate)
+        result['regular_num'] = regular_num  # 规则数
         return result
 
     def count_dept(self, page=""):
@@ -2087,13 +2088,15 @@ class StatisticPatientInfos(object):
             [
                 {"$group": {
                     "_id": "$pat_info.dept_discharge_from_name",
-                    "count": {"$sum": 1}
+                    "count": {"$sum": 1},
+                    "director": {"$addToSet": "$binganshouye.pat_visit.dept_director_name"}
                 }},
                 {"$sort": {"count": -1}}
-            ],
+            ]
         )
         result_list = list(result)
-        return len(result_list)
+
+        return result_list
 
     def one_year_right_and_error(self):
         """
@@ -2125,8 +2128,8 @@ class StatisticPatientInfos(object):
                                          'error': error,  # 当月问题病历数量
                                          'right': right,  # 当月没有问题病历数量
                                          'total': total,  # 当年病历总量
-                                         'error_ratio': error/total if total else 0})  # 当月问题病历比率
-            
+                                         'error_ratio': error / total if total else 0})  # 当月问题病历比率
+
             # 按年统计各科室病历问题量和病历总量
             for dept in data['info']:
                 if not dept['dept']:
@@ -2151,7 +2154,8 @@ class StatisticPatientInfos(object):
                 tmp_list = self.count_temp_this_year(year, temp)
             dict_info["info"] = info_list  # 详细情况列表，即病历问题量图表数据
             dict_info["dept_ratio_first_5"] = (sorted(tmp_list, key=lambda x: x["value"], reverse=True))[:5]  # 上升前五名
-            dict_info["dept_ratio_last_5"] = (sorted(tmp_list, key=lambda x: x["value"], reverse=True))[-1:-6:-1]  # 下降前五名
+            dict_info["dept_ratio_last_5"] = (sorted(tmp_list, key=lambda x: x["value"], reverse=True))[
+                                             -1:-6:-1]  # 下降前五名
             result_handle[str(year)] = dict_info  # 将一年的数据放到一个单独的字典中，然后每年的数据放到一个大字典中
         # print(result_handle)
         return result_handle
@@ -2175,7 +2179,8 @@ class StatisticPatientInfos(object):
             detail_info.append(info_this_year_month)  # 将当月的数据添加到列表中
         return detail_info
 
-    def hand_this_month(self, this_year_month, dict_info, last_year_month, info_last_year):
+    @staticmethod
+    def hand_this_month(this_year_month, dict_info, last_year_month, info_last_year):
         """
         处理非第一年的 info 字段数据的详细过程
         :param this_year_month: 当年当月的月份数据
@@ -2207,10 +2212,11 @@ class StatisticPatientInfos(object):
             info_detail["year_on_year"] += info_detail["error_ratio"]
         else:
             info_detail["year_on_year"] += info_detail["error_ratio"] - (
-                        info_detail["error_LY"] / info_detail["total_LY"])
+                    info_detail["error_LY"] / info_detail["total_LY"])
         return info_detail
 
-    def hand_first_year(self, year, d_source):
+    @staticmethod
+    def hand_first_year(year, d_source):
         """
         处理起始年的 info 字段数据的详细过程，起始年返回的的数据和其他数据不一样，单独处理。
         因为是起始年，没有同比数据，故同比项直接给了默认值 0
@@ -2253,7 +2259,7 @@ class StatisticPatientInfos(object):
         """
         last_year = year - 1
         nurses_year_list = []
-        
+
         tmp_this_year, nurses_list_this_year, nurses_dict_this_year = self.count_temp(year, tmp)
         tmp_last_year, nurses_list_last_year, nurses_dict_last_year = self.count_temp(last_year, tmp)
         for nurses in nurses_list_this_year:
@@ -2267,7 +2273,8 @@ class StatisticPatientInfos(object):
             nurses_year_list.append(nurses_dict)  # 将结果添加到列表中，方便做排序
         return nurses_year_list
 
-    def count_temp(self, year, tmp):
+    @staticmethod
+    def count_temp(year, tmp):
         """
         处理一年的各科室病历问题量上升排名和下降排名
         :param year: 当年的年份，如 2018
@@ -2286,6 +2293,153 @@ class StatisticPatientInfos(object):
             nurses_dict_year[nurses] = nurses_dict["value"]  # 直接对字典排序，得到的是元祖，不方便做下一步统计
             result_list.append(nurses_dict)  # 将字典放入列表中，根据字典的值对列表排序，排序结果还是列表嵌套字典，方便下一步操作
         return result_list, nurses_list, nurses_dict_year
+
+    def get_department_list(self, page):
+        """
+        处理并返回科室列表
+        :param page: 是从哪个页面发起的请求，参数可以传“zhongmo”或者其他需要添加的页面名称，可以不传，默认为 "zhongmo"
+        :return: 科室名单列表
+        """
+        department_dict_list = self.count_dept(page=page)  # [{'_id': '普外科', 'count': 10, 'director': ['徐智', '付卫']}]
+        department_list = list()
+        for department_dict in department_dict_list:
+            result_dict = dict()
+            result_dict["department_value"] = department_dict.get("_id", "")
+            result_dict["director"] = department_dict.get("director", "")
+            department_list.append(result_dict)
+
+        return department_list
+
+    def senior_doctor_header(self, page="", department=""):
+        """
+        科主任页面的页眉处理，基本与既往或者终末页面的页眉是差不多的，只不过是分成了独立的科室
+        :param page: 是从哪个页面发起的请求，参数可以传“zhongmo”或者其他需要添加的页面名称，可以不传，默认为 "zhongmo"
+        :param department: 科室名称，如果不传，默认为上一步返回的科室列表的第一个
+        :return:
+            {
+                "monitor_date": "监控日期",
+                "regular_num": 规则数,
+                "department_value": "监控科室",
+                "director": 科主任姓名,
+                "record_total": 监控病历总数,
+                "class_A": 甲级病历数,
+                "class_B": 乙级病历数,
+                "class_C": 丙级病历数,
+                "ratio_class_A": "甲级病历率",
+                "ratio_class_B": "乙级病历率",
+                "ratio_class_C": "丙级病历率"
+            }
+        """
+        result = dict()
+        header_of_page = self.header_of_page()
+        result.update(header_of_page)
+        page = "zhongmo" if (not page) else page
+        department_list = self.get_department_list(page)
+        if not department:
+            result.update(department_list[0])
+            find_patient_by_status = self.find_patient_by_status(page=page,
+                                                                 department=department_list[0].get("department_value"))
+        else:
+            for dep in department_list:
+                if dep.get("_id") != department:
+                    continue
+                else:
+                    result.update(dep)
+            find_patient_by_status = self.find_patient_by_status(page=page, department=department)
+        result.update(find_patient_by_status)
+        return result
+
+    def dept_problem_percentage(self, page="", department=""):
+        """
+        xxx科问题分类百分比
+        问题病历数/病历总数
+        问题病历数从_this_month, _last_month, _last_two_month 取
+        病历总数每日定时从binganshouye获取
+        total_zhongmo_this_month: 本月病历总数
+        total_zhongmo_last_month: 上月病历总数
+        total_zhongmo_last_two_month: 上上月病历总数
+        """
+        page = "zhongmo" if (not page) else page
+
+        department_list = self.get_department_list(page)
+
+        # if not department:
+        department = department_list[0].get("department_value", "") if (not department) else department
+
+        # 本月各科室病历总数，问题病历总数
+        this_month_total, this_month_num = self.query_by_month("_this_month")
+
+        # 上月各科室病历总数，问题病历总数
+        last_month_total, last_month_num = self.query_by_month("_last_month")
+
+        # 上上月各科室病历总数，问题病历总数
+        last_two_month_total, last_two_month_num = self.query_by_month("_last_two_month")
+
+        result = dict()
+        # 本月该科室问题病历量排名
+        rank_this_month, dept_list_this_month = self.rank_of_department(this_month_num, department)
+        # 上月该科室问题量排名
+        rank_last_month, dept_list_last_month = self.rank_of_department(last_month_num, department)
+        result["department"] = department
+        result['graph_data'] = list()
+        this_month_percentage = dict()
+        last_month_percentage = dict()
+        for dept in dept_list_this_month:
+            result['graph_data'].append({
+                'dept': dept,
+                'by': this_month_num.get(dept, 0) / this_month_total.get(dept, float('inf')),
+                'sy': last_month_num.get(dept, 0) / last_month_total.get(dept, float('inf')),
+                'ssy': last_two_month_num.get(dept, 0) / last_two_month_total.get(dept, float('inf')),
+                'by_num': this_month_num.get(dept, 0),
+                'sy_num': last_month_num.get(dept, 0),
+                'ssy_num': last_two_month_num.get(dept, 0),
+            })
+            this_month_percentage[dept] = this_month_num.get(dept, 0) / this_month_total.get(dept, float('inf'))
+            last_month_percentage[dept] = last_month_num.get(dept, 0) / last_month_total.get(dept, float('inf'))
+        # result["total"] = sum(value for key, value in this_month_num.items())
+        result["total"] = this_month_num.get(department)  # 问题病历数 xxx 份：是该科室的还是总的？
+        result["rank"] = rank_this_month  # 该科室问题病历数排名：按大到小排还是小到大排？
+        result["rank_change"] = rank_this_month - rank_last_month  # 正数表示排名上升，负数表示排名下降，0表示排名不变
+        return result
+
+    def query_by_month(self, month):
+        """
+        按月按科室查询当月当科室中病历总数和问题病历总数
+        :param month: 需要查询的月份，有“_this_month”， “_last_month” 和 “_last_two_month”三个条件
+        :param department: 科室名称
+        :return: 查询的病历总数和病历问题病历总数
+        """
+
+        conn = self.mongo_pull_utils.connection(self.collection_name + month)
+        month_total = dict()
+        month_num = dict()
+        mongo_result = conn.find({}, {'pat_info.dept_discharge_from_name': 1, 'pat_value.code': 1})
+        for data in mongo_result:
+            if data.get('pat_info', dict()).get('dept_discharge_from_name'):
+                dept = data['pat_info']['dept_discharge_from_name']
+                month_total.setdefault(dept, 0)
+                month_total[dept] += 1
+                if data.get('pat_value', list()):
+                    month_num.setdefault(dept, 0)
+                    month_num[dept] += 1
+        return month_total, month_num
+
+    @staticmethod
+    def rank_of_department(department_dict, department):
+        """
+        获取科室问题量排名
+        :param department_dict: 科室问题统计结果
+        :return: 某科室的排名名次
+        """
+        tmp = sorted(department_dict.items(), key=lambda x: x[1], reverse=True)  # 降序排序，值越大说明问题越多
+        dept_list = [value[0] for value in tmp]
+        if department in dept_list:
+            # 如果科室在列表中，说明该科室当月有问题病历，其排名为对应的下标 +1
+            department_rank = dept_list.index(department) + 1
+        else:
+            # 如果该科室没有在列表中，说明该科室当月无问题病历，其排名为列表的长度 +1
+            department_rank = len(dept_list) + 1
+        return department_rank, dept_list
 
 
 if __name__ == '__main__':

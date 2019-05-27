@@ -31,7 +31,7 @@ urlpatterns = [
     url(r'^version\.json', views.version, name='version'),
     url(r'^testClient\.json', views.testClient, name='testClient'),
     url(r'^zhongmoDept\.json', views.zhongmoDept, name='zhongmoDept'),
-    url(r'^deptProblemPercentage\.json', views.deptProblemPercentage, name='deptProblemPercentage'),
+    # url(r'^deptProblemPercentage\.json', views.deptProblemPercentage, name='deptProblemPercentage'),
     url(r'^deptProblemClassify\.json', views.deptProblemClassify, name='deptProblemClassify'),
     url(r'^doctorProblemNum\.json', views.doctorProblemNum, name='doctorProblemNum'),
     url(r'^zhongmoRecordName\.json', views.zhongmoRecordName, name='zhongmoRecordName'),
@@ -42,4 +42,5 @@ urlpatterns = [
     url(r'^graph_page_header\.json', views.graph_page_header, name='graph_page_header'),
     url(r'^detail_problem_patients\.json', views.detail_problem_patients, name='detail_problem_patients'),
     url(r'^one_year_right_and_error\.json', views.one_year_right_and_error, name='one_year_right_and_error'),
+    url(r'^dept_problem_percentage\.json', views.dept_problem_percentage, name='dept_problem_percentage'),
 ]
